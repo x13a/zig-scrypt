@@ -1,8 +1,9 @@
 const std = @import("std");
 const crypto = std.crypto;
 const math = std.math;
+const mem = std.mem;
 
-const maxInt = math.maxInt(u64) >> 1;
+const max_int = math.maxInt(u64) >> 1;
 
 fn blockCopy(dst: []u32, src: []u32, n: usize) void {
     std.mem.copy(u32, dst, src[0..n]);
@@ -158,7 +159,7 @@ fn integer(b: []u32, r: usize) usize {
     return @as(usize, b[j]) | @as(usize, b[j + 1]) << 32;
 }
 
-fn smix(b: []u8, r: usize, N: usize, v: []u32, xy: []u32) void {
+fn smix(b: []u8, r: usize, n: usize, v: []u32, xy: []u32) void {
     var tmp: [16]u32 = undefined;
     var x = xy;
     var y = xy[32*r..];
@@ -176,7 +177,7 @@ fn smix(b: []u8, r: usize, N: usize, v: []u32, xy: []u32) void {
     }
 
     i = 0;
-    while (i < N) : (i += 2) {
+    while (i < n) : (i += 2) {
         blockCopy(v[i*(32*r)..], x, 32*r);
         blockMix(&tmp, x, y, r);
 
@@ -185,12 +186,12 @@ fn smix(b: []u8, r: usize, N: usize, v: []u32, xy: []u32) void {
     }
 
     i = 0;
-    while (i < N) : (i += 2) {
-        j = integer(x, r) & (N-1);
+    while (i < n) : (i += 2) {
+        j = integer(x, r) & (n-1);
         blockXOR(x, v[j*(32*r)..], 32*r);
         blockMix(&tmp, x, y, r);
 
-        j = integer(y, r) & (N-1);
+        j = integer(y, r) & (n-1);
         blockXOR(y, v[j*(32*r)..], 32*r);
         blockMix(&tmp, y, x, r);
     }
@@ -210,29 +211,35 @@ pub const ScriptError = error {
 };
 
 pub fn scrypt(
-    derivedKey: []u8,
+    allocator: *mem.Allocator,
+    derived_key: []u8,
     password: []const u8, 
     salt: []const u8, 
-    comptime N: i32, 
-    comptime r: i32, 
-    comptime p: i32, 
+    n: i32, 
+    r: i32, 
+    p: i32, 
 ) !void {
-    if (N <= 1 or N&(N-1) != 0) {
-        return ScryptError.InvalidParams;
+    if (n <= 1 or n&(n-1) != 0) {
+        return ScriptError.InvalidParams;
     }
     if (
         @intCast(u64, r) * @intCast(u64, p) >= 1<<30 
-        or r > maxInt/128/@intCast(u64, p)
-        or r > maxInt/256 
-        or N > maxInt/128/@intCast(u64, r)
+        or r > max_int/128/@intCast(u64, p)
+        or r > max_int/256 
+        or n > max_int/128/@intCast(u64, r)
     ) {
-        return ScryptError.InvalidParams;
+        return ScriptError.InvalidParams;
     }
-    var xy: [@intCast(usize, 64*r)]u32 = undefined;
-    var v: [@intCast(usize, 32*N*r)]u32 = undefined;
-    var derived_key: [@intCast(usize, p*128*r)]u8 = undefined;
+
+    var xy = try allocator.alloc(u32, @intCast(usize, 64*r));
+    defer allocator.free(xy);
+    var v = try allocator.alloc(u32, @intCast(usize, 32*n*r));
+    defer allocator.free(v);
+    var dk = try allocator.alloc(u8, @intCast(usize, p*128*r));
+    defer allocator.free(dk);
+
     try crypto.pwhash.pbkdf2(
-        derived_key[0..], 
+        dk[0..], 
         password, 
         salt, 
         1, 
@@ -241,17 +248,17 @@ pub fn scrypt(
     var i: i32 = 0;
     while (i < p) : (i += 1) {
         smix(
-            derived_key[@intCast(usize, i*128*r)..], 
+            dk[@intCast(usize, i*128*r)..], 
             @intCast(usize, r), 
-            @intCast(usize, N), 
+            @intCast(usize, n), 
             v[0..], 
             xy[0..],
         );
     }
     try crypto.pwhash.pbkdf2(
-        derivedKey[0..], 
-        password, 
         derived_key[0..], 
+        password, 
+        dk[0..], 
         1, 
         crypto.auth.hmac.sha2.HmacSha256,
     );
@@ -260,12 +267,12 @@ pub fn scrypt(
 test "scrypt" {
     const password = "testpass";
     const salt = "saltsalt";
-    const N = 32768;
+    const n = 32768;
     const r = 8;
     const p = 1;
 
     var v: [32]u8 = undefined;
-    try scrypt(v[0..], password, salt, N, r, p);
+    try scrypt(std.testing.allocator, v[0..], password, salt, n, r, p);
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len/2]u8 = undefined;
