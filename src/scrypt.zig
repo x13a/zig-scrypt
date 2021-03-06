@@ -1,3 +1,6 @@
+// https://tools.ietf.org/html/rfc7914
+// https://github.com/golang/crypto/blob/master/scrypt/scrypt.go
+
 const std = @import("std");
 const crypto = std.crypto;
 const math = std.math;
@@ -145,21 +148,21 @@ fn salsaXOR(tmp: *[16]u32, in: []u32, out: []u32) void {
     tmp[15] = x15;
 }
 
-fn blockMix(tmp: *[16]u32, in: []u32, out: []u32, r: usize) void {
+fn blockMix(tmp: *[16]u32, in: []u32, out: []u32, r: u32) void {
     blockCopy(tmp, in[(2*r-1)*16..], 16);
-    var i: usize = 0;
+    var i: u64 = 0;
     while (i < 2*r) : (i += 2) {
         salsaXOR(tmp, in[i*16..], out[i*8..]);
         salsaXOR(tmp, in[i*16+16..], out[i*8+r*16..]);
     }
 }
 
-fn integer(b: []u32, r: usize) usize {
+fn integer(b: []u32, r: u32) u64 {
     const j = (2*r - 1) * 16;
-    return @as(usize, b[j]) | @as(usize, b[j + 1]) << 32;
+    return @as(u64, b[j]) | @as(u64, b[j + 1]) << 32;
 }
 
-fn smix(b: []u8, r: usize, n: usize, v: []u32, xy: []u32) void {
+fn smix(b: []u8, r: u32, n: usize, v: []u32, xy: []u32) void {
     var tmp: [16]u32 = undefined;
     var x = xy;
     var y = xy[32*r..];
@@ -206,8 +209,28 @@ fn smix(b: []u8, r: usize, n: usize, v: []u32, xy: []u32) void {
     }
 }
 
-pub const ScriptError = error {
+const Error = error {
     InvalidParams,
+    InvalidDerivedKeyLen,
+};
+
+// +Pbkdf2Error
+pub const ScriptError = Error || mem.Allocator.Error;
+
+pub const ScriptParams = struct {
+    const Self = @This();
+
+    log_n: u6 = 15,
+    r: u32 = 8,
+    p: u32 = 1,
+
+    pub fn init(log_n: u6, r: u32, p: u32) Self {
+        return Self {
+            .log_n = log_n,
+            .r = r,
+            .p = p,
+        };
+    }
 };
 
 pub fn scrypt(
@@ -215,27 +238,30 @@ pub fn scrypt(
     derived_key: []u8,
     password: []const u8, 
     salt: []const u8, 
-    n: i32, 
-    r: i32, 
-    p: i32, 
+    params: ?ScriptParams,
 ) !void {
+    if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
+        return ScriptError.InvalidDerivedKeyLen;
+    }
+    const param = params orelse ScriptParams {};
+    const n = @as(usize, 1) << param.log_n;
     if (n <= 1 or n&(n-1) != 0) {
         return ScriptError.InvalidParams;
     }
     if (
-        @intCast(u64, r) * @intCast(u64, p) >= 1<<30 
-        or r > max_int/128/@intCast(u64, p)
-        or r > max_int/256 
-        or n > max_int/128/@intCast(u64, r)
+        @as(u64, param.r) * @as(u64, param.p) >= 1<<30 
+        or param.r > max_int/128/@as(u64, param.p)
+        or param.r > max_int/256 
+        or n > max_int/128/@as(u64, param.r)
     ) {
         return ScriptError.InvalidParams;
     }
 
-    var xy = try allocator.alloc(u32, @intCast(usize, 64*r));
+    var xy = try allocator.alloc(u32, 64*param.r);
     defer allocator.free(xy);
-    var v = try allocator.alloc(u32, @intCast(usize, 32*n*r));
+    var v = try allocator.alloc(u32, 32*n*param.r);
     defer allocator.free(v);
-    var dk = try allocator.alloc(u8, @intCast(usize, p*128*r));
+    var dk = try allocator.alloc(u8, param.p*128*param.r);
     defer allocator.free(dk);
 
     try crypto.pwhash.pbkdf2(
@@ -245,12 +271,12 @@ pub fn scrypt(
         1, 
         crypto.auth.hmac.sha2.HmacSha256,
     );
-    var i: i32 = 0;
-    while (i < p) : (i += 1) {
+    var i: u32 = 0;
+    while (i < param.p) : (i += 1) {
         smix(
-            dk[@intCast(usize, i*128*r)..], 
-            @intCast(usize, r), 
-            @intCast(usize, n), 
+            dk[i*128*param.r..], 
+            param.r, 
+            n, 
             v[0..], 
             xy[0..],
         );
@@ -267,17 +293,12 @@ pub fn scrypt(
 test "scrypt" {
     const password = "testpass";
     const salt = "saltsalt";
-    const n = 32768;
-    const r = 8;
-    const p = 1;
 
     var v: [32]u8 = undefined;
-    try scrypt(std.testing.allocator, v[0..], password, salt, n, r, p);
+    try scrypt(std.testing.allocator, v[0..], password, salt, null);
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len/2]u8 = undefined;
-    for (bytes) | *r1, i | {
-        r1.* = std.fmt.parseInt(u8, hex[2*i..2*i+2], 16) catch unreachable;
-    }
+    try std.fmt.hexToBytes(bytes[0..], hex);
     std.testing.expectEqualSlices(u8, bytes[0..], v[0..]);
 }
