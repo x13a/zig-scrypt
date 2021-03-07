@@ -8,6 +8,10 @@ const mem = std.mem;
 const b64enc = base64.standard_encoder;
 const b64dec = base64.standard_decoder;
 
+const fields_delimiter = "$";
+const params_delimiter = ",";
+const kv_delimiter = "=";
+
 const Error = error{
     ParseError,
     InvalidAlgorithm,
@@ -18,7 +22,6 @@ pub const PHCStringError = Error || mem.Allocator.Error || fmt.ParseIntError;
 
 pub fn PHCString(comptime T: type) type {
     return struct {
-        const fields_delimiter = "$";
         const Self = @This();
 
         allocator: *mem.Allocator,
@@ -45,12 +48,12 @@ pub fn PHCString(comptime T: type) type {
             if (mem.indexOf(u8, s1, "=")) |_| {
                 res.params = try T.fromString(s1);
             }
-            const salt = try Self.b64decode(
+            const salt = try b64decode(
                 allocator,
                 it.next() orelse return res,
             );
             errdefer allocator.free(salt);
-            const key = try Self.b64decode(
+            const key = try b64decode(
                 allocator,
                 it.next() orelse {
                     res.salt = salt;
@@ -64,28 +67,6 @@ pub fn PHCString(comptime T: type) type {
             res.salt = salt;
             res.key = key;
             return res;
-        }
-
-        fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
-            if (s.len == 0) {
-                return error.ParseError;
-            }
-            // TODO std base64 decoder not working without padding
-            var buf: []u8 = undefined;
-            if (s.len % 4 != 0) {
-                var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
-                defer allocator.free(s1);
-                mem.copy(u8, s1, s);
-                mem.set(u8, s1[s.len..], '=');
-                buf = try allocator.alloc(u8, try b64dec.calcSize(s1));
-                errdefer allocator.free(buf);
-                try b64dec.decode(buf, s1);
-            } else {
-                buf = try allocator.alloc(u8, try b64dec.calcSize(s));
-                errdefer allocator.free(buf);
-                try b64dec.decode(buf, s);
-            }
-            return buf;
         }
 
         pub fn check_id(self: *Self, alg_id: []const u8) PHCStringError!void {
@@ -115,62 +96,96 @@ pub fn PHCString(comptime T: type) type {
             errdefer self.allocator.free(params);
             var salt: []u8 = undefined;
             if (self.salt) |v| {
-                salt = try self.b64encode(v);
+                salt = try b64encode(self.allocator, v);
                 i += salt.len + 1;
             }
             errdefer self.allocator.free(salt);
             var key: []u8 = undefined;
             if (self.key) |v| {
-                key = try self.b64encode(v);
+                key = try b64encode(self.allocator, v);
                 i += key.len + 1;
             }
             errdefer self.allocator.free(key);
             var buf = try self.allocator.alloc(u8, i);
-            self.write(buf, 0, self.alg_id, false);
-            self.write(buf, 1 + self.alg_id.len, params, true);
-            self.write(buf, 2 + self.alg_id.len + params.len, salt, true);
-            self.write(buf, 3 + self.alg_id.len + params.len + salt.len, key, true);
+            write(self.allocator, buf, 0, self.alg_id, false);
+            write(self.allocator, buf, 1 + self.alg_id.len, params, true);
+            write(
+                self.allocator,
+                buf,
+                2 + self.alg_id.len + params.len,
+                salt,
+                true,
+            );
+            write(
+                self.allocator,
+                buf,
+                3 + self.alg_id.len + params.len + salt.len,
+                key,
+                true,
+            );
             return buf;
-        }
-
-        fn b64encode(self: *Self, v: []u8) ![]u8 {
-            // TODO bug in calcSize?
-            // v0.7.1
-            // error: expected 1 argument(s), found 2
-            // var buf = try self.allocator.alloc(u8, b64enc.calcSize(v.len));
-            var buf = try self.allocator.alloc(u8, @divTrunc(v.len + 2, 3) * 4);
-            b64enc.encode(buf, v);
-            // TODO base64 encoding without padding
-            var i: usize = buf.len;
-            while (i > 0) : (i -= 1) {
-                if (buf[i - 1] != '=') {
-                    break;
-                }
-            }
-            if (i != buf.len) {
-                errdefer self.allocator.free(buf);
-                return self.allocator.realloc(buf, i);
-            }
-            return buf;
-        }
-
-        fn write(
-            self: *Self,
-            buf: []u8,
-            pos: usize,
-            v: []const u8,
-            free: bool,
-        ) void {
-            if (v.len == 0) {
-                return;
-            }
-            mem.copy(u8, buf[pos..], fields_delimiter);
-            mem.copy(u8, buf[pos + fields_delimiter.len ..], v);
-            if (free) {
-                self.allocator.free(v);
-            }
         }
     };
+}
+
+fn write(
+    allocator: *mem.Allocator,
+    buf: []u8,
+    pos: usize,
+    v: []const u8,
+    free: bool,
+) void {
+    if (v.len == 0) {
+        return;
+    }
+    mem.copy(u8, buf[pos..], fields_delimiter);
+    mem.copy(u8, buf[pos + fields_delimiter.len ..], v);
+    if (free) {
+        allocator.free(v);
+    }
+}
+
+fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
+    // TODO bug in calcSize?
+    // v0.7.1
+    // error: expected 1 argument(s), found 2
+    // var buf = try self.allocator.alloc(u8, b64enc.calcSize(v.len));
+    var buf = try allocator.alloc(u8, @divTrunc(v.len + 2, 3) * 4);
+    b64enc.encode(buf, v);
+    // TODO base64 encoding without padding
+    var i: usize = buf.len;
+    while (i > 0) : (i -= 1) {
+        if (buf[i - 1] != '=') {
+            break;
+        }
+    }
+    if (i != buf.len) {
+        errdefer allocator.free(buf);
+        return allocator.realloc(buf, i);
+    }
+    return buf;
+}
+
+fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
+    if (s.len == 0) {
+        return error.ParseError;
+    }
+    // TODO std base64 decoder not working without padding
+    var buf: []u8 = undefined;
+    if (s.len % 4 != 0) {
+        var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
+        defer allocator.free(s1);
+        mem.copy(u8, s1, s);
+        mem.set(u8, s1[s.len..], '=');
+        buf = try allocator.alloc(u8, try b64dec.calcSize(s1));
+        errdefer allocator.free(buf);
+        try b64dec.decode(buf, s1);
+    } else {
+        buf = try allocator.alloc(u8, try b64dec.calcSize(s));
+        errdefer allocator.free(buf);
+        try b64dec.decode(buf, s);
+    }
+    return buf;
 }
 
 pub const Param = struct {
@@ -185,8 +200,6 @@ pub const Param = struct {
 };
 
 pub const ParamsIterator = struct {
-    const params_delimiter = ",";
-    const kv_delimiter = "=";
     const Self = @This();
 
     it: mem.SplitIterator,
