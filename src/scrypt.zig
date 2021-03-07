@@ -173,13 +173,11 @@ fn smix(b: []u8, r: u32, n: usize, v: []u32, xy: []u32) void {
 
     var i: usize = 0;
     var j: usize = 0;
-    while (i < 32*r) : (i += 1) {
-        x[i] = (
-            @as(u32, b[j])
-            | @as(u32, b[j + 1]) << 8
-            | @as(u32, b[j + 2]) << 16
-            | @as(u32, b[j + 3]) << 24
-        );
+    while (i < 32 * r) : (i += 1) {
+        x[i] = (@as(u32, b[j]) |
+            @as(u32, b[j + 1]) << 8 |
+            @as(u32, b[j + 2]) << 16 |
+            @as(u32, b[j + 3]) << 24);
         j += 4;
     }
 
@@ -259,19 +257,33 @@ pub const ScryptParams = struct {
         self: Self,
         allocator: *mem.Allocator,
     ) mem.Allocator.Error![]const u8 {
-        var buf = try allocator.alloc(u8, 9 + @sizeOf(u6) + @sizeOf(u32) * 2);
-        const s = fmt.bufPrint(
+        var buf = try allocator.alloc(
+            u8,
+            (9 +
+                numLen(self.log_n) +
+                numLen(self.r) +
+                numLen(self.p)),
+        );
+        _ = fmt.bufPrint(
             buf,
             "ln={d},r={d},p={d}",
             .{ self.log_n, self.r, self.p },
         ) catch unreachable;
-        if (s.len < buf.len) {
-            errdefer allocator.free(buf);
-            return allocator.realloc(buf, s.len);
-        }
         return buf;
     }
 };
+
+fn numLen(v: anytype) usize {
+    if (v == 0) {
+        return 1;
+    }
+    var i: usize = 0;
+    var n = v;
+    while (n > 0) : (n /= 10) {
+        i += 1;
+    }
+    return i;
+}
 
 // TODO return ScryptError
 pub fn scrypt(
@@ -289,12 +301,11 @@ pub fn scrypt(
     if (n <= 1 or n & (n - 1) != 0) {
         return error.InvalidParams;
     }
-    if (
-        @as(u64, param.r) * @as(u64, param.p) >= 1<<30 
-        or param.r > max_int/128/@as(u64, param.p)
-        or param.r > max_int/256 
-        or n > max_int/128/@as(u64, param.r)
-    ) {
+    if (@as(u64, param.r) * @as(u64, param.p) >= 1 << 30 or
+        param.r > max_int / 128 / @as(u64, param.p) or
+        param.r > max_int / 256 or
+        n > max_int / 128 / @as(u64, param.r))
+    {
         return error.InvalidParams;
     }
 
