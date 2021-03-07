@@ -8,7 +8,7 @@ const mem = std.mem;
 const b64enc = base64.standard_encoder;
 const b64dec = base64.standard_decoder;
 
-const Error = error {
+const Error = error{
     ParseError,
     InvalidAlgorithm,
 };
@@ -37,28 +37,28 @@ pub fn PHCString(comptime T: type) type {
             if (alg_id.len == 0 or alg_id.len > 32) {
                 return error.ParseError;
             }
-            var res = Self {
+            var res = Self{
                 .allocator = allocator,
                 .alg_id = alg_id,
             };
             var s1 = it.next() orelse return res;
-            if (mem.indexOf(u8, s1, "=")) | _ | {
+            if (mem.indexOf(u8, s1, "=")) |_| {
                 res.params = try T.fromString(s1);
             }
             const salt = try Self.b64decode(
-                allocator, 
+                allocator,
                 it.next() orelse return res,
             );
             errdefer allocator.free(salt);
             const key = try Self.b64decode(
-                allocator, 
+                allocator,
                 it.next() orelse {
                     res.salt = salt;
                     return res;
                 },
             );
             errdefer allocator.free(key);
-            if (it.next()) | _ | {
+            if (it.next()) |_| {
                 return error.ParseError;
             }
             res.salt = salt;
@@ -95,11 +95,11 @@ pub fn PHCString(comptime T: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            if (self.salt) | v | {
+            if (self.salt) |v| {
                 self.allocator.free(v);
                 self.salt = null;
             }
-            if (self.key) | v | {
+            if (self.key) |v| {
                 self.allocator.free(v);
                 self.key = null;
             }
@@ -108,37 +108,37 @@ pub fn PHCString(comptime T: type) type {
         pub fn toString(self: *Self) ![]const u8 {
             var i: usize = 1 + self.alg_id.len;
             var params: []const u8 = undefined;
-            if (self.params) | v | {
+            if (self.params) |v| {
                 params = try v.toString(self.allocator);
                 i += params.len + 1;
             }
             errdefer self.allocator.free(params);
             var salt: []u8 = undefined;
-            if (self.salt) | v | {
+            if (self.salt) |v| {
                 salt = try self.b64encode(v);
                 i += salt.len + 1;
             }
             errdefer self.allocator.free(salt);
             var key: []u8 = undefined;
-            if (self.key) | v | {
+            if (self.key) |v| {
                 key = try self.b64encode(v);
                 i += key.len + 1;
             }
             errdefer self.allocator.free(key);
             var buf = try self.allocator.alloc(u8, i);
             self.write(buf, 0, self.alg_id, false);
-            self.write(buf, 1+self.alg_id.len, params, true);
-            self.write(buf, 2+self.alg_id.len+params.len, salt, true);
-            self.write(buf, 3+self.alg_id.len+params.len+salt.len, key, true);
+            self.write(buf, 1 + self.alg_id.len, params, true);
+            self.write(buf, 2 + self.alg_id.len + params.len, salt, true);
+            self.write(buf, 3 + self.alg_id.len + params.len + salt.len, key, true);
             return buf;
         }
 
         fn b64encode(self: *Self, v: []u8) ![]u8 {
-            // TODO bug in calcSize? 
+            // TODO bug in calcSize?
             // v0.7.1
             // error: expected 1 argument(s), found 2
             // var buf = try self.allocator.alloc(u8, b64enc.calcSize(v.len));
-            var buf = try self.allocator.alloc(u8, @divTrunc(v.len+2, 3) * 4);
+            var buf = try self.allocator.alloc(u8, @divTrunc(v.len + 2, 3) * 4);
             b64enc.encode(buf, v);
             // TODO base64 encoding without padding
             var i: usize = buf.len;
@@ -155,17 +155,17 @@ pub fn PHCString(comptime T: type) type {
         }
 
         fn write(
-            self: *Self, 
-            buf: []u8, 
-            pos: usize, 
-            v: []const u8, 
+            self: *Self,
+            buf: []u8,
+            pos: usize,
+            v: []const u8,
             free: bool,
         ) void {
             if (v.len == 0) {
                 return;
             }
             mem.copy(u8, buf[pos..], fields_delimiter);
-            mem.copy(u8, buf[pos+fields_delimiter.len..], v);
+            mem.copy(u8, buf[pos + fields_delimiter.len ..], v);
             if (free) {
                 self.allocator.free(v);
             }
@@ -192,7 +192,7 @@ pub const ParamsIterator = struct {
     it: mem.SplitIterator,
 
     pub fn init(s: []const u8) Self {
-        return Self { .it = mem.split(s, params_delimiter) };
+        return Self{ .it = mem.split(s, params_delimiter) };
     }
 
     pub fn next(self: *Self) PHCStringError!?Param {
@@ -206,15 +206,14 @@ pub const ParamsIterator = struct {
         if (value.len == 0) {
             return error.ParseError;
         }
-        if (it.next()) | _ | {
+        if (it.next()) |_| {
             return error.ParseError;
         }
-        return Param {
+        return Param{
             .key = key,
             .value = value,
         };
     }
-
 };
 
 test "phc string" {

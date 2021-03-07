@@ -17,7 +17,7 @@ fn blockCopy(dst: []u32, src: []u32, n: usize) void {
 }
 
 fn blockXOR(dst: []u32, src: []u32, n: usize) void {
-    for (src[0..n]) | v, i | {
+    for (src[0..n]) |v, i| {
         dst[i] ^= v;
     }
 }
@@ -153,24 +153,24 @@ fn salsaXOR(tmp: *[16]u32, in: []u32, out: []u32) void {
 }
 
 fn blockMix(tmp: *[16]u32, in: []u32, out: []u32, r: u32) void {
-    blockCopy(tmp, in[(2*r-1)*16..], 16);
+    blockCopy(tmp, in[(2 * r - 1) * 16 ..], 16);
     var i: u64 = 0;
-    while (i < 2*r) : (i += 2) {
-        salsaXOR(tmp, in[i*16..], out[i*8..]);
-        salsaXOR(tmp, in[i*16+16..], out[i*8+r*16..]);
+    while (i < 2 * r) : (i += 2) {
+        salsaXOR(tmp, in[i * 16 ..], out[i * 8 ..]);
+        salsaXOR(tmp, in[i * 16 + 16 ..], out[i * 8 + r * 16 ..]);
     }
 }
 
 fn integer(b: []u32, r: u32) u64 {
-    const j = (2*r - 1) * 16;
+    const j = (2 * r - 1) * 16;
     return @as(u64, b[j]) | @as(u64, b[j + 1]) << 32;
 }
 
 fn smix(b: []u8, r: u32, n: usize, v: []u32, xy: []u32) void {
     var tmp: [16]u32 = undefined;
     var x = xy;
-    var y = xy[32*r..];
-    
+    var y = xy[32 * r ..];
+
     var i: usize = 0;
     var j: usize = 0;
     while (i < 32*r) : (i += 1) {
@@ -185,26 +185,26 @@ fn smix(b: []u8, r: u32, n: usize, v: []u32, xy: []u32) void {
 
     i = 0;
     while (i < n) : (i += 2) {
-        blockCopy(v[i*(32*r)..], x, 32*r);
+        blockCopy(v[i * (32 * r) ..], x, 32 * r);
         blockMix(&tmp, x, y, r);
 
-        blockCopy(v[(i+1)*(32*r)..], y, 32*r);
+        blockCopy(v[(i + 1) * (32 * r) ..], y, 32 * r);
         blockMix(&tmp, y, x, r);
     }
 
     i = 0;
     while (i < n) : (i += 2) {
-        j = integer(x, r) & (n-1);
-        blockXOR(x, v[j*(32*r)..], 32*r);
+        j = integer(x, r) & (n - 1);
+        blockXOR(x, v[j * (32 * r) ..], 32 * r);
         blockMix(&tmp, x, y, r);
 
-        j = integer(y, r) & (n-1);
-        blockXOR(y, v[j*(32*r)..], 32*r);
+        j = integer(y, r) & (n - 1);
+        blockXOR(y, v[j * (32 * r) ..], 32 * r);
         blockMix(&tmp, y, x, r);
     }
 
     j = 0;
-    for (x[0..32*r]) | v1 | {
+    for (x[0 .. 32 * r]) |v1| {
         b[j + 0] = @truncate(u8, v1 >> 0);
         b[j + 1] = @truncate(u8, v1 >> 8);
         b[j + 2] = @truncate(u8, v1 >> 16);
@@ -213,7 +213,7 @@ fn smix(b: []u8, r: u32, n: usize, v: []u32, xy: []u32) void {
     }
 }
 
-const Error = error {
+const Error = error{
     InvalidParams,
     InvalidDerivedKeyLen,
 };
@@ -229,7 +229,7 @@ pub const ScryptParams = struct {
     p: u32 = 1,
 
     pub fn init(log_n: u6, r: u32, p: u32) Self {
-        return Self {
+        return Self{
             .log_n = log_n,
             .r = r,
             .p = p,
@@ -237,10 +237,10 @@ pub const ScryptParams = struct {
     }
 
     pub fn fromString(s: []const u8) phc.PHCStringError!Self {
-        var res = Self {};
+        var res = Self{};
         var i: usize = 0;
         var it = phc.ParamsIterator.init(s);
-        while (try it.next()) | param | : (i += 1) {
+        while (try it.next()) |param| : (i += 1) {
             if (mem.eql(u8, param.key, "ln")) {
                 res.log_n = try param.decimal(u6);
             } else if (mem.eql(u8, param.key, "r")) {
@@ -256,13 +256,13 @@ pub const ScryptParams = struct {
     }
 
     pub fn toString(
-        self: Self, 
+        self: Self,
         allocator: *mem.Allocator,
     ) mem.Allocator.Error![]const u8 {
-        var buf = try allocator.alloc(u8, 9 + @sizeOf(u6) + @sizeOf(u32)*2);
+        var buf = try allocator.alloc(u8, 9 + @sizeOf(u6) + @sizeOf(u32) * 2);
         const s = fmt.bufPrint(
-            buf, 
-            "ln={d},r={d},p={d}", 
+            buf,
+            "ln={d},r={d},p={d}",
             .{ self.log_n, self.r, self.p },
         ) catch unreachable;
         if (s.len < buf.len) {
@@ -277,16 +277,16 @@ pub const ScryptParams = struct {
 pub fn scrypt(
     allocator: *mem.Allocator,
     derived_key: []u8,
-    password: []const u8, 
-    salt: []const u8, 
+    password: []const u8,
+    salt: []const u8,
     params: ?ScryptParams,
 ) !void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
         return error.InvalidDerivedKeyLen;
     }
-    const param = params orelse ScryptParams {};
+    const param = params orelse ScryptParams{};
     const n = @as(usize, 1) << param.log_n;
-    if (n <= 1 or n&(n-1) != 0) {
+    if (n <= 1 or n & (n - 1) != 0) {
         return error.InvalidParams;
     }
     if (
@@ -298,35 +298,35 @@ pub fn scrypt(
         return error.InvalidParams;
     }
 
-    var xy = try allocator.alloc(u32, 64*param.r);
+    var xy = try allocator.alloc(u32, 64 * param.r);
     defer allocator.free(xy);
-    var v = try allocator.alloc(u32, 32*n*param.r);
+    var v = try allocator.alloc(u32, 32 * n * param.r);
     defer allocator.free(v);
-    var dk = try allocator.alloc(u8, param.p*128*param.r);
+    var dk = try allocator.alloc(u8, param.p * 128 * param.r);
     defer allocator.free(dk);
 
     try crypto.pwhash.pbkdf2(
-        dk, 
-        password, 
-        salt, 
-        1, 
+        dk,
+        password,
+        salt,
+        1,
         crypto.auth.hmac.sha2.HmacSha256,
     );
     var i: u32 = 0;
     while (i < param.p) : (i += 1) {
         smix(
-            dk[i*128*param.r..], 
-            param.r, 
-            n, 
-            v, 
+            dk[i * 128 * param.r ..],
+            param.r,
+            n,
+            v,
             xy,
         );
     }
     try crypto.pwhash.pbkdf2(
-        derived_key, 
-        password, 
-        dk, 
-        1, 
+        derived_key,
+        password,
+        dk,
+        1,
         crypto.auth.hmac.sha2.HmacSha256,
     );
 }
@@ -339,7 +339,7 @@ test "scrypt" {
     try scrypt(std.testing.allocator, &v, password, salt, null);
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
-    var bytes: [hex.len/2]u8 = undefined;
+    var bytes: [hex.len / 2]u8 = undefined;
     try std.fmt.hexToBytes(&bytes, hex);
     std.testing.expectEqualSlices(u8, &bytes, &v);
 }
