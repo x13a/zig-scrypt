@@ -3,13 +3,17 @@
 
 const std = @import("std");
 const crypto = std.crypto;
+const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
 
+const phc = @import("phc_string.zig");
+
 const max_int = math.maxInt(u64) >> 1;
+pub const alg_id = "scrypt";
 
 fn blockCopy(dst: []u32, src: []u32, n: usize) void {
-    std.mem.copy(u32, dst, src[0..n]);
+    mem.copy(u32, dst, src[0..n]);
 }
 
 fn blockXOR(dst: []u32, src: []u32, n: usize) void {
@@ -215,9 +219,9 @@ const Error = error {
 };
 
 // +Pbkdf2Error
-pub const ScriptError = Error || mem.Allocator.Error;
+pub const ScryptError = Error || mem.Allocator.Error;
 
-pub const ScriptParams = struct {
+pub const ScryptParams = struct {
     const Self = @This();
 
     log_n: u6 = 15,
@@ -231,22 +235,59 @@ pub const ScriptParams = struct {
             .p = p,
         };
     }
+
+    pub fn fromString(s: []const u8) phc.PHCStringError!Self {
+        var res = Self {};
+        var i: usize = 0;
+        var it = phc.ParamsIterator.init(s);
+        while (try it.next()) | param | : (i += 1) {
+            if (mem.eql(u8, param.key, "ln")) {
+                res.log_n = try param.decimal(u6);
+            } else if (mem.eql(u8, param.key, "r")) {
+                res.r = try param.decimal(u32);
+            } else if (mem.eql(u8, param.key, "p")) {
+                res.p = try param.decimal(u32);
+            }
+            if (i >= 3) {
+                return error.ParseError;
+            }
+        }
+        return res;
+    }
+
+    pub fn toString(
+        self: Self, 
+        allocator: *mem.Allocator,
+    ) mem.Allocator.Error![]const u8 {
+        var buf = try allocator.alloc(u8, 9 + @sizeOf(u6) + @sizeOf(u32)*2);
+        const s = fmt.bufPrint(
+            buf, 
+            "ln={d},r={d},p={d}", 
+            .{ self.log_n, self.r, self.p },
+        ) catch unreachable;
+        if (s.len < buf.len) {
+            errdefer allocator.free(buf);
+            return allocator.realloc(buf, s.len);
+        }
+        return buf;
+    }
 };
 
+// TODO return ScryptError
 pub fn scrypt(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8, 
     salt: []const u8, 
-    params: ?ScriptParams,
+    params: ?ScryptParams,
 ) !void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
-        return ScriptError.InvalidDerivedKeyLen;
+        return error.InvalidDerivedKeyLen;
     }
-    const param = params orelse ScriptParams {};
+    const param = params orelse ScryptParams {};
     const n = @as(usize, 1) << param.log_n;
     if (n <= 1 or n&(n-1) != 0) {
-        return ScriptError.InvalidParams;
+        return error.InvalidParams;
     }
     if (
         @as(u64, param.r) * @as(u64, param.p) >= 1<<30 
@@ -254,7 +295,7 @@ pub fn scrypt(
         or param.r > max_int/256 
         or n > max_int/128/@as(u64, param.r)
     ) {
-        return ScriptError.InvalidParams;
+        return error.InvalidParams;
     }
 
     var xy = try allocator.alloc(u32, 64*param.r);
@@ -265,7 +306,7 @@ pub fn scrypt(
     defer allocator.free(dk);
 
     try crypto.pwhash.pbkdf2(
-        dk[0..], 
+        dk, 
         password, 
         salt, 
         1, 
@@ -277,14 +318,14 @@ pub fn scrypt(
             dk[i*128*param.r..], 
             param.r, 
             n, 
-            v[0..], 
-            xy[0..],
+            v, 
+            xy,
         );
     }
     try crypto.pwhash.pbkdf2(
-        derived_key[0..], 
+        derived_key, 
         password, 
-        dk[0..], 
+        dk, 
         1, 
         crypto.auth.hmac.sha2.HmacSha256,
     );
@@ -295,10 +336,10 @@ test "scrypt" {
     const salt = "saltsalt";
 
     var v: [32]u8 = undefined;
-    try scrypt(std.testing.allocator, v[0..], password, salt, null);
+    try scrypt(std.testing.allocator, &v, password, salt, null);
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len/2]u8 = undefined;
-    try std.fmt.hexToBytes(bytes[0..], hex);
-    std.testing.expectEqualSlices(u8, bytes[0..], v[0..]);
+    try std.fmt.hexToBytes(&bytes, hex);
+    std.testing.expectEqualSlices(u8, &bytes, &v);
 }
