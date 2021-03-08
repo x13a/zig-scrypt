@@ -246,6 +246,8 @@ pub const ScryptParams = struct {
                 res.r = try param.decimal(u32);
             } else if (mem.eql(u8, param.key, "p")) {
                 res.p = try param.decimal(u32);
+            } else {
+                return error.ParseError;
             }
         }
         return res;
