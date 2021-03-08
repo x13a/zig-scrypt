@@ -14,202 +14,97 @@ const pwhash = @import("password_hash.zig");
 const max_int = math.maxInt(u64) >> 1;
 pub const alg_id = "scrypt";
 
-fn blockCopy(dst: []u32, src: []u32, n: usize) void {
-    mem.copy(u32, dst, src[0..n]);
+fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
+    mem.copy(u32, dst, src[0 .. n * 16]);
 }
 
-fn blockXOR(dst: []u32, src: []u32, n: usize) void {
-    for (src[0..n]) |v, i| {
+fn blockXor(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
+    for (src[0 .. n * 16]) |v, i| {
         dst[i] ^= v;
     }
 }
 
-fn salsaXOR(tmp: *[16]u32, in: []u32, out: []u32) void {
-    const w0 = tmp[0] ^ in[0];
-    const w1 = tmp[1] ^ in[1];
-    const w2 = tmp[2] ^ in[2];
-    const w3 = tmp[3] ^ in[3];
-    const w4 = tmp[4] ^ in[4];
-    const w5 = tmp[5] ^ in[5];
-    const w6 = tmp[6] ^ in[6];
-    const w7 = tmp[7] ^ in[7];
-    const w8 = tmp[8] ^ in[8];
-    const w9 = tmp[9] ^ in[9];
-    const w10 = tmp[10] ^ in[10];
-    const w11 = tmp[11] ^ in[11];
-    const w12 = tmp[12] ^ in[12];
-    const w13 = tmp[13] ^ in[13];
-    const w14 = tmp[14] ^ in[14];
-    const w15 = tmp[15] ^ in[15];
+const QuarterRound = struct { a: usize, b: usize, c: usize, d: u6 };
 
-    var x0 = w0;
-    var x1 = w1;
-    var x2 = w2;
-    var x3 = w3;
-    var x4 = w4;
-    var x5 = w5;
-    var x6 = w6;
-    var x7 = w7;
-    var x8 = w8;
-    var x9 = w9;
-    var x10 = w10;
-    var x11 = w11;
-    var x12 = w12;
-    var x13 = w13;
-    var x14 = w14;
-    var x15 = w15;
-
-    var i: i32 = 0;
-    while (i < 8) : (i += 2) {
-        x4 ^= math.rotl(u32, x0 +% x12, 7);
-        x8 ^= math.rotl(u32, x4 +% x0, 9);
-        x12 ^= math.rotl(u32, x8 +% x4, 13);
-        x0 ^= math.rotl(u32, x12 +% x8, 18);
-
-        x9 ^= math.rotl(u32, x5 +% x1, 7);
-        x13 ^= math.rotl(u32, x9 +% x5, 9);
-        x1 ^= math.rotl(u32, x13 +% x9, 13);
-        x5 ^= math.rotl(u32, x1 +% x13, 18);
-
-        x14 ^= math.rotl(u32, x10 +% x6, 7);
-        x2 ^= math.rotl(u32, x14 +% x10, 9);
-        x6 ^= math.rotl(u32, x2 +% x14, 13);
-        x10 ^= math.rotl(u32, x6 +% x2, 18);
-
-        x3 ^= math.rotl(u32, x15 +% x11, 7);
-        x7 ^= math.rotl(u32, x3 +% x15, 9);
-        x11 ^= math.rotl(u32, x7 +% x3, 13);
-        x15 ^= math.rotl(u32, x11 +% x7, 18);
-
-        x1 ^= math.rotl(u32, x0 +% x3, 7);
-        x2 ^= math.rotl(u32, x1 +% x0, 9);
-        x3 ^= math.rotl(u32, x2 +% x1, 13);
-        x0 ^= math.rotl(u32, x3 +% x2, 18);
-
-        x6 ^= math.rotl(u32, x5 +% x4, 7);
-        x7 ^= math.rotl(u32, x6 +% x5, 9);
-        x4 ^= math.rotl(u32, x7 +% x6, 13);
-        x5 ^= math.rotl(u32, x4 +% x7, 18);
-
-        x11 ^= math.rotl(u32, x10 +% x9, 7);
-        x8 ^= math.rotl(u32, x11 +% x10, 9);
-        x9 ^= math.rotl(u32, x8 +% x11, 13);
-        x10 ^= math.rotl(u32, x9 +% x8, 18);
-
-        x12 ^= math.rotl(u32, x15 +% x14, 7);
-        x13 ^= math.rotl(u32, x12 +% x15, 9);
-        x14 ^= math.rotl(u32, x13 +% x12, 13);
-        x15 ^= math.rotl(u32, x14 +% x13, 18);
-    }
-
-    x0 +%= w0;
-    x1 +%= w1;
-    x2 +%= w2;
-    x3 +%= w3;
-    x4 +%= w4;
-    x5 +%= w5;
-    x6 +%= w6;
-    x7 +%= w7;
-    x8 +%= w8;
-    x9 +%= w9;
-    x10 +%= w10;
-    x11 +%= w11;
-    x12 +%= w12;
-    x13 +%= w13;
-    x14 +%= w14;
-    x15 +%= w15;
-
-    out[0] = x0;
-    out[1] = x1;
-    out[2] = x2;
-    out[3] = x3;
-    out[4] = x4;
-    out[5] = x5;
-    out[6] = x6;
-    out[7] = x7;
-    out[8] = x8;
-    out[9] = x9;
-    out[10] = x10;
-    out[11] = x11;
-    out[12] = x12;
-    out[13] = x13;
-    out[14] = x14;
-    out[15] = x15;
-
-    tmp[0] = x0;
-    tmp[1] = x1;
-    tmp[2] = x2;
-    tmp[3] = x3;
-    tmp[4] = x4;
-    tmp[5] = x5;
-    tmp[6] = x6;
-    tmp[7] = x7;
-    tmp[8] = x8;
-    tmp[9] = x9;
-    tmp[10] = x10;
-    tmp[11] = x11;
-    tmp[12] = x12;
-    tmp[13] = x13;
-    tmp[14] = x14;
-    tmp[15] = x15;
+fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
+    return QuarterRound{ .a = a, .b = b, .c = c, .d = d };
 }
 
-fn blockMix(tmp: *[16]u32, in: []u32, out: []u32, r: u32) void {
-    blockCopy(tmp, in[(2 * r - 1) * 16 ..], 16);
-    var i: u64 = 0;
+fn salsa8core(b: *align(16) [16]u32) void {
+    const arx_steps = comptime [_]QuarterRound{
+        Rp(4, 0, 12, 7),   Rp(8, 4, 0, 9),    Rp(12, 8, 4, 13),   Rp(0, 12, 8, 18),
+        Rp(9, 5, 1, 7),    Rp(13, 9, 5, 9),   Rp(1, 13, 9, 13),   Rp(5, 1, 13, 18),
+        Rp(14, 10, 6, 7),  Rp(2, 14, 10, 9),  Rp(6, 2, 14, 13),   Rp(10, 6, 2, 18),
+        Rp(3, 15, 11, 7),  Rp(7, 3, 15, 9),   Rp(11, 7, 3, 13),   Rp(15, 11, 7, 18),
+        Rp(1, 0, 3, 7),    Rp(2, 1, 0, 9),    Rp(3, 2, 1, 13),    Rp(0, 3, 2, 18),
+        Rp(6, 5, 4, 7),    Rp(7, 6, 5, 9),    Rp(4, 7, 6, 13),    Rp(5, 4, 7, 18),
+        Rp(11, 10, 9, 7),  Rp(8, 11, 10, 9),  Rp(9, 8, 11, 13),   Rp(10, 9, 8, 18),
+        Rp(12, 15, 14, 7), Rp(13, 12, 15, 9), Rp(14, 13, 12, 13), Rp(15, 14, 13, 18),
+    };
+    var x = b.*;
+    var j: usize = 0;
+    while (j < 8) : (j += 2) {
+        inline for (arx_steps) |r| {
+            x[r.a] ^= math.rotl(u32, x[r.b] +% x[r.c], r.d);
+        }
+    }
+    j = 0;
+    while (j < 16) : (j += 1) {
+        b[j] +%= x[j];
+    }
+}
+
+fn salsaXor(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16) u32) void {
+    blockXor(tmp, in, 1);
+    salsa8core(tmp);
+    blockCopy(out, tmp, 1);
+}
+
+fn blockMix(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16) u32, r: u32) void {
+    blockCopy(tmp, in[(2 * r - 1) * 16 ..], 1);
+    var i: usize = 0;
     while (i < 2 * r) : (i += 2) {
-        salsaXOR(tmp, in[i * 16 ..], out[i * 8 ..]);
-        salsaXOR(tmp, in[i * 16 + 16 ..], out[i * 8 + r * 16 ..]);
+        salsaXor(tmp, in[i * 16 ..], out[i * 8 ..]);
+        salsaXor(tmp, in[i * 16 + 16 ..], out[i * 8 + r * 16 ..]);
     }
 }
 
-fn integer(b: []u32, r: u32) u64 {
+fn integerify(b: []align(16) const u32, r: u32) u64 {
     const j = (2 * r - 1) * 16;
     return @as(u64, b[j]) | @as(u64, b[j + 1]) << 32;
 }
 
-fn smix(b: []u8, r: u32, n: usize, v: []u32, xy: []u32) void {
-    var tmp: [16]u32 = undefined;
-    var x = xy;
+fn smix(b: []align(16) u8, r: u32, n: usize, v: []align(16) u32, xy: []align(16) u32) void {
+    var x = xy[0 .. 32 * r];
     var y = xy[32 * r ..];
 
+    for (x) |*v1, j| {
+        v1.* = mem.readIntLittle(u32, b[4 * j ..][0..4]);
+    }
+
+    var tmp: [16]u32 align(16) = undefined;
     var i: usize = 0;
-    var j: usize = 0;
-    while (i < 32 * r) : (i += 1) {
-        x[i] = (@as(u32, b[j]) |
-            @as(u32, b[j + 1]) << 8 |
-            @as(u32, b[j + 2]) << 16 |
-            @as(u32, b[j + 3]) << 24);
-        j += 4;
-    }
-
-    i = 0;
     while (i < n) : (i += 2) {
-        blockCopy(v[i * (32 * r) ..], x, 32 * r);
+        blockCopy(v[i * (32 * r) ..], x, 2 * r);
         blockMix(&tmp, x, y, r);
 
-        blockCopy(v[(i + 1) * (32 * r) ..], y, 32 * r);
+        blockCopy(v[(i + 1) * (32 * r) ..], y, 2 * r);
         blockMix(&tmp, y, x, r);
     }
 
     i = 0;
     while (i < n) : (i += 2) {
-        j = integer(x, r) & (n - 1);
-        blockXOR(x, v[j * (32 * r) ..], 32 * r);
+        var j = integerify(x, r) & (n - 1);
+        blockXor(x, v[j * (32 * r) ..], 2 * r);
         blockMix(&tmp, x, y, r);
 
-        j = integer(y, r) & (n - 1);
-        blockXOR(y, v[j * (32 * r) ..], 32 * r);
+        j = integerify(y, r) & (n - 1);
+        blockXor(y, v[j * (32 * r) ..], 2 * r);
         blockMix(&tmp, y, x, r);
     }
 
-    j = 0;
-    for (x[0 .. 32 * r]) |v1| {
-        b[j + 0] = @truncate(u8, v1 >> 0);
-        b[j + 1] = @truncate(u8, v1 >> 8);
-        b[j + 2] = @truncate(u8, v1 >> 16);
-        b[j + 3] = @truncate(u8, v1 >> 24);
-        j += 4;
+    for (x) |v1, j| {
+        mem.writeIntLittle(u32, b[4 * j ..][0..4], v1);
     }
 }
 
@@ -234,6 +129,20 @@ pub const ScryptParams = struct {
             .r = r,
             .p = p,
         };
+    }
+
+    pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
+        const ops = math.max(32768, ops_limit);
+        const r: u32 = 8;
+        if (ops < mem_limit / 32) {
+            const max_n = ops / (r * 4);
+            return ScryptParams{ .r = r, .p = 1, .log_n = @intCast(u6, math.log2(max_n)) };
+        } else {
+            const max_n = mem_limit / (@intCast(usize, r) * 128);
+            const log_n = @intCast(u6, math.log2(max_n));
+            const max_rp = math.min(0x3fffffff, (ops / 4) / (@as(u64, 1) << log_n));
+            return ScryptParams{ .r = r, .p = @intCast(u32, max_rp / @as(u64, r)), .log_n = log_n };
+        }
     }
 
     pub fn fromString(s: []const u8) pwhash.PasswordHashError!Self {
@@ -294,11 +203,11 @@ pub fn scrypt(
         return error.InvalidParams;
     }
 
-    var xy = try allocator.alloc(u32, 64 * param.r);
+    var xy = try allocator.alignedAlloc(u32, 16, 64 * param.r);
     defer allocator.free(xy);
-    var v = try allocator.alloc(u32, 32 * n * param.r);
+    var v = try allocator.alignedAlloc(u32, 16, 32 * n * param.r);
     defer allocator.free(v);
-    var dk = try allocator.alloc(u8, param.p * 128 * param.r);
+    var dk = try allocator.alignedAlloc(u8, 16, param.p * 128 * param.r);
     defer allocator.free(dk);
 
     try crypto.pwhash.pbkdf2(dk, password, salt, 1, HmacSha256);
@@ -318,6 +227,6 @@ test "scrypt" {
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
-    try std.fmt.hexToBytes(&bytes, hex);
+    _ = try std.fmt.hexToBytes(&bytes, hex);
     std.testing.expectEqualSlices(u8, &bytes, &v);
 }
