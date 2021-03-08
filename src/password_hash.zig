@@ -93,10 +93,10 @@ pub fn PasswordHash(comptime T: type) type {
         }
 
         pub fn toString(self: *Self) ![]const u8 {
-            var i: usize = 1 + self.alg_id.len;
+            var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
-                versionLen = numLen(v) + fields_delimiter.len + version_prefix.len;
+                versionLen = numLen(v) + version_prefix.len + fields_delimiter.len;
                 i += versionLen;
             }
             var params: []const u8 = undefined;
@@ -173,7 +173,7 @@ fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
     // TODO bug in calcSize?
     // v0.7.1
     // error: expected 1 argument(s), found 2
-    // var buf = try self.allocator.alloc(u8, b64enc.calcSize(v.len));
+    // var buf = try allocator.alloc(u8, b64enc.calcSize(v.len));
     var buf = try allocator.alloc(u8, @divTrunc(v.len + 2, 3) * 4);
     b64enc.encode(buf, v);
     // TODO base64 encoding without padding
@@ -227,13 +227,18 @@ pub const ParamsIterator = struct {
     const Self = @This();
 
     it: mem.SplitIterator,
+    limit: usize,
+    pos: usize = 0,
 
-    pub fn init(s: []const u8) Self {
-        return Self{ .it = mem.split(s, params_delimiter) };
+    pub fn init(s: []const u8, limit: usize) Self {
+        return Self{ .it = mem.split(s, params_delimiter), .limit = limit };
     }
 
     pub fn next(self: *Self) PasswordHashError!?Param {
         const s = self.it.next() orelse return null;
+        if (self.pos == self.limit) {
+            return error.ParseError;
+        }
         var it = mem.split(s, kv_delimiter);
         const key = it.next() orelse return error.ParseError;
         if (key.len == 0 or key.len > 32) {
@@ -246,6 +251,7 @@ pub const ParamsIterator = struct {
         if (it.next() != null) {
             return error.ParseError;
         }
+        self.pos += 1;
         return Param{
             .key = key,
             .value = value,

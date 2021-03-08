@@ -238,18 +238,14 @@ pub const ScryptParams = struct {
 
     pub fn fromString(s: []const u8) pwhash.PasswordHashError!Self {
         var res = Self{};
-        var i: usize = 0;
-        var it = pwhash.ParamsIterator.init(s);
-        while (try it.next()) |param| : (i += 1) {
+        var it = pwhash.ParamsIterator.init(s, 3);
+        while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "ln")) {
                 res.log_n = try param.decimal(u6);
             } else if (mem.eql(u8, param.key, "r")) {
                 res.r = try param.decimal(u32);
             } else if (mem.eql(u8, param.key, "p")) {
                 res.p = try param.decimal(u32);
-            }
-            if (i >= 3) {
-                return error.ParseError;
             }
         }
         return res;
