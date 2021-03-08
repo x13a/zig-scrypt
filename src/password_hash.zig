@@ -10,9 +10,9 @@ const b64enc = base64.standard_encoder;
 const b64dec = base64.standard_decoder;
 
 const fields_delimiter = "$";
-const params_delimiter = ",";
-const kv_delimiter = "=";
 const version_prefix = "v=";
+pub const params_delimiter = ",";
+pub const kv_delimiter = "=";
 
 const Error = error{
     ParseError,
