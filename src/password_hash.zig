@@ -170,11 +170,7 @@ const Writer = struct {
 };
 
 fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
-    // TODO bug in calcSize?
-    // v0.7.1
-    // error: expected 1 argument(s), found 2
-    // var buf = try allocator.alloc(u8, b64enc.calcSize(v.len));
-    var buf = try allocator.alloc(u8, @divTrunc(v.len + 2, 3) * 4);
+    var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
     b64enc.encode(buf, v);
     // TODO base64 encoding without padding
     var i: usize = buf.len;
