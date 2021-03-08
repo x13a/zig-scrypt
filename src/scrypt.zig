@@ -7,7 +7,9 @@ const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
 
-const phc = @import("phc_string.zig");
+const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
+
+const pwhash = @import("password_hash.zig");
 
 const max_int = math.maxInt(u64) >> 1;
 pub const alg_id = "scrypt";
@@ -234,10 +236,10 @@ pub const ScryptParams = struct {
         };
     }
 
-    pub fn fromString(s: []const u8) phc.PHCStringError!Self {
+    pub fn fromString(s: []const u8) pwhash.PasswordHashError!Self {
         var res = Self{};
         var i: usize = 0;
-        var it = phc.ParamsIterator.init(s);
+        var it = pwhash.ParamsIterator.init(s);
         while (try it.next()) |param| : (i += 1) {
             if (mem.eql(u8, param.key, "ln")) {
                 res.log_n = try param.decimal(u6);
@@ -253,16 +255,13 @@ pub const ScryptParams = struct {
         return res;
     }
 
-    pub fn toString(
-        self: Self,
-        allocator: *mem.Allocator,
-    ) mem.Allocator.Error![]const u8 {
+    pub fn toString(self: Self, allocator: *mem.Allocator) mem.Allocator.Error![]const u8 {
         var buf = try allocator.alloc(
             u8,
             (9 +
-                numLen(self.log_n) +
-                numLen(self.r) +
-                numLen(self.p)),
+                pwhash.numLen(self.log_n) +
+                pwhash.numLen(self.r) +
+                pwhash.numLen(self.p)),
         );
         _ = fmt.bufPrint(
             buf,
@@ -272,18 +271,6 @@ pub const ScryptParams = struct {
         return buf;
     }
 };
-
-fn numLen(v: anytype) usize {
-    if (v == 0) {
-        return 1;
-    }
-    var i: usize = 0;
-    var n = v;
-    while (n > 0) : (n /= 10) {
-        i += 1;
-    }
-    return i;
-}
 
 // TODO return ScryptError
 pub fn scrypt(
@@ -316,30 +303,12 @@ pub fn scrypt(
     var dk = try allocator.alloc(u8, param.p * 128 * param.r);
     defer allocator.free(dk);
 
-    try crypto.pwhash.pbkdf2(
-        dk,
-        password,
-        salt,
-        1,
-        crypto.auth.hmac.sha2.HmacSha256,
-    );
+    try crypto.pwhash.pbkdf2(dk, password, salt, 1, HmacSha256);
     var i: u32 = 0;
     while (i < param.p) : (i += 1) {
-        smix(
-            dk[i * 128 * param.r ..],
-            param.r,
-            n,
-            v,
-            xy,
-        );
+        smix(dk[i * 128 * param.r ..], param.r, n, v, xy);
     }
-    try crypto.pwhash.pbkdf2(
-        derived_key,
-        password,
-        dk,
-        1,
-        crypto.auth.hmac.sha2.HmacSha256,
-    );
+    try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
 
 test "scrypt" {

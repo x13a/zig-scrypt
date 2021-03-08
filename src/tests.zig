@@ -1,4 +1,4 @@
 test "all" {
-    _ = @import("phc_string.zig");
+    _ = @import("password_hash.zig");
     _ = @import("scrypt.zig");
 }

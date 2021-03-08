@@ -1,4 +1,5 @@
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
+// https://github.com/P-H-C/phc-string-format/pull/4
 
 const std = @import("std");
 const base64 = std.base64;
@@ -11,6 +12,7 @@ const b64dec = base64.standard_decoder;
 const fields_delimiter = "$";
 const params_delimiter = ",";
 const kv_delimiter = "=";
+const version_prefix = "v=";
 
 const Error = error{
     ParseError,
@@ -18,22 +20,20 @@ const Error = error{
 };
 
 // TODO base64 doesn't have one error set
-pub const PHCStringError = Error || mem.Allocator.Error || fmt.ParseIntError;
+pub const PasswordHashError = Error || mem.Allocator.Error || fmt.ParseIntError;
 
-pub fn PHCString(comptime T: type) type {
+pub fn PasswordHash(comptime T: type) type {
     return struct {
         const Self = @This();
 
         allocator: *mem.Allocator,
         alg_id: []const u8,
+        version: ?u32 = null,
         params: ?T = null,
         salt: ?[]u8 = null,
         key: ?[]u8 = null,
 
-        pub fn fromString(
-            allocator: *mem.Allocator,
-            s: []const u8,
-        ) !Self {
+        pub fn fromString(allocator: *mem.Allocator, s: []const u8) !Self {
             var it = mem.split(s, fields_delimiter);
             _ = it.next();
             const alg_id = it.next() orelse return error.ParseError;
@@ -45,7 +45,13 @@ pub fn PHCString(comptime T: type) type {
                 .alg_id = alg_id,
             };
             var s1 = it.next() orelse return res;
-            if (mem.indexOf(u8, s1, "=")) |_| {
+            if (mem.startsWith(u8, s1, version_prefix) and
+                mem.indexOf(u8, s1, params_delimiter) == null)
+            {
+                res.version = try fmt.parseInt(u32, s1[version_prefix.len..], 10);
+                s1 = it.next() orelse return res;
+            }
+            if (mem.indexOf(u8, s1, kv_delimiter) != null) {
                 res.params = try T.fromString(s1);
             }
             const salt = try b64decode(
@@ -61,7 +67,7 @@ pub fn PHCString(comptime T: type) type {
                 },
             );
             errdefer allocator.free(key);
-            if (it.next()) |_| {
+            if (it.next() != null) {
                 return error.ParseError;
             }
             res.salt = salt;
@@ -69,7 +75,7 @@ pub fn PHCString(comptime T: type) type {
             return res;
         }
 
-        pub fn check_id(self: *Self, alg_id: []const u8) PHCStringError!void {
+        pub fn check_id(self: *Self, alg_id: []const u8) PasswordHashError!void {
             if (!mem.eql(u8, self.alg_id, alg_id)) {
                 return error.InvalidAlgorithm;
             }
@@ -88,62 +94,80 @@ pub fn PHCString(comptime T: type) type {
 
         pub fn toString(self: *Self) ![]const u8 {
             var i: usize = 1 + self.alg_id.len;
+            var versionLen: usize = 0;
+            if (self.version) |v| {
+                versionLen = numLen(v) + fields_delimiter.len + version_prefix.len;
+                i += versionLen;
+            }
             var params: []const u8 = undefined;
             if (self.params) |v| {
                 params = try v.toString(self.allocator);
-                i += params.len + 1;
+                i += params.len + fields_delimiter.len;
             }
             errdefer self.allocator.free(params);
             var salt: []u8 = undefined;
             if (self.salt) |v| {
                 salt = try b64encode(self.allocator, v);
-                i += salt.len + 1;
+                i += salt.len + fields_delimiter.len;
             }
             errdefer self.allocator.free(salt);
             var key: []u8 = undefined;
             if (self.key) |v| {
                 key = try b64encode(self.allocator, v);
-                i += key.len + 1;
+                i += key.len + fields_delimiter.len;
             }
             errdefer self.allocator.free(key);
             var buf = try self.allocator.alloc(u8, i);
-            write(self.allocator, buf, 0, self.alg_id, false);
-            write(self.allocator, buf, 1 + self.alg_id.len, params, true);
-            write(
-                self.allocator,
-                buf,
-                2 + self.alg_id.len + params.len,
-                salt,
-                true,
-            );
-            write(
-                self.allocator,
-                buf,
-                3 + self.alg_id.len + params.len + salt.len,
-                key,
-                true,
-            );
+            var w = Writer.init(self.allocator, buf);
+            w.write(self.alg_id, false);
+            if (self.version) |v| {
+                _ = fmt.bufPrint(
+                    buf[w.pos..],
+                    "{}{}{d}",
+                    .{ fields_delimiter, version_prefix, v },
+                ) catch unreachable;
+                w.pos += versionLen;
+            }
+            w.write(params, true);
+            w.write(salt, true);
+            w.write(key, true);
             return buf;
         }
     };
 }
 
-fn write(
+pub fn numLen(v: anytype) usize {
+    var i: usize = 1;
+    var n = v;
+    while (n >= 10) : (n /= 10) {
+        i += 1;
+    }
+    return i;
+}
+
+const Writer = struct {
+    const Self = @This();
+
     allocator: *mem.Allocator,
     buf: []u8,
-    pos: usize,
-    v: []const u8,
-    free: bool,
-) void {
-    if (v.len == 0) {
-        return;
+    pos: usize = 0,
+
+    fn init(allocator: *mem.Allocator, buf: []u8) Self {
+        return Self{ .allocator = allocator, .buf = buf };
     }
-    mem.copy(u8, buf[pos..], fields_delimiter);
-    mem.copy(u8, buf[pos + fields_delimiter.len ..], v);
-    if (free) {
-        allocator.free(v);
+
+    fn write(self: *Self, v: []const u8, free: bool) void {
+        if (v.len == 0) {
+            return;
+        }
+        mem.copy(u8, self.buf[self.pos..], fields_delimiter);
+        mem.copy(u8, self.buf[self.pos + fields_delimiter.len ..], v);
+        self.pos += fields_delimiter.len + v.len;
+        if (free) {
+            self.allocator.free(v);
+        }
     }
-}
+};
 
 fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
     // TODO bug in calcSize?
@@ -208,7 +232,7 @@ pub const ParamsIterator = struct {
         return Self{ .it = mem.split(s, params_delimiter) };
     }
 
-    pub fn next(self: *Self) PHCStringError!?Param {
+    pub fn next(self: *Self) PasswordHashError!?Param {
         const s = self.it.next() orelse return null;
         var it = mem.split(s, kv_delimiter);
         const key = it.next() orelse return error.ParseError;
@@ -219,7 +243,7 @@ pub const ParamsIterator = struct {
         if (value.len == 0) {
             return error.ParseError;
         }
-        if (it.next()) |_| {
+        if (it.next() != null) {
             return error.ParseError;
         }
         return Param{
@@ -229,12 +253,12 @@ pub const ParamsIterator = struct {
     }
 };
 
-test "phc string" {
+test "password hash" {
     const scrypt = @import("scrypt.zig");
-    const phc = PHCString(scrypt.ScryptParams);
+    const ph = PasswordHash(scrypt.ScryptParams);
     const alloc = std.testing.allocator;
-    const s = "$scrypt$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
-    var v = try phc.fromString(alloc, s);
+    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+    var v = try ph.fromString(alloc, s);
     defer v.deinit();
     const s1 = try v.toString();
     defer alloc.free(s1);
