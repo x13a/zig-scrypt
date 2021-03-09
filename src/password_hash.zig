@@ -123,7 +123,7 @@ pub fn PasswordHash(comptime T: type) type {
             if (self.version) |v| {
                 _ = fmt.bufPrint(
                     buf[w.pos..],
-                    "{}{}{d}",
+                    "{s}{s}{d}",
                     .{ fields_delimiter, version_prefix, v },
                 ) catch unreachable;
                 w.pos += versionLen;
@@ -171,7 +171,7 @@ const Writer = struct {
 
 fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
     var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
-    b64enc.encode(buf, v);
+    _ = b64enc.encode(buf, v);
     // TODO base64 encoding without padding
     var i: usize = buf.len;
     while (i > 0) : (i -= 1) {
