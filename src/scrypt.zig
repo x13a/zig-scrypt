@@ -79,7 +79,7 @@ fn smix(b: []align(16) u8, r: u32, n: usize, v: []align(16) u32, xy: []align(16)
     var y = xy[32 * r ..];
 
     for (x) |*v1, j| {
-        v1.* = mem.readIntLittle(u32, b[4 * j ..][0..4]);
+        v1.* = mem.readIntSliceLittle(u32, b[4 * j ..]);
     }
 
     var tmp: [16]u32 align(16) = undefined;
@@ -145,7 +145,7 @@ pub const ScryptParams = struct {
         }
     }
 
-    pub fn fromString(s: []const u8) pwhash.PasswordHashError!Self {
+    pub fn fromPhcString(s: []const u8) pwhash.PasswordHashError!Self {
         var res = Self{};
         var it = pwhash.ParamsIterator.init(s, 3);
         while (try it.next()) |param| {
@@ -162,25 +162,18 @@ pub const ScryptParams = struct {
         return res;
     }
 
-    pub fn toString(self: Self, allocator: *mem.Allocator) mem.Allocator.Error![]const u8 {
-        var buf = try allocator.alloc(
-            u8,
-            (9 +
-                pwhash.numLen(self.log_n) +
-                pwhash.numLen(self.r) +
-                pwhash.numLen(self.p)),
-        );
-        _ = fmt.bufPrint(
-            buf,
+    pub fn toPhcString(self: Self, allocator: *mem.Allocator) mem.Allocator.Error![]const u8 {
+        const buf = try fmt.allocPrint(
+            allocator,
             "ln={d},r={d},p={d}",
             .{ self.log_n, self.r, self.p },
-        ) catch unreachable;
+        );
         return buf;
     }
 };
 
 // TODO return ScryptError
-pub fn scrypt(
+pub fn kdf(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8,
@@ -218,12 +211,12 @@ pub fn scrypt(
     try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
 
-test "scrypt" {
+test "kdf" {
     const password = "testpass";
     const salt = "saltsalt";
 
     var v: [32]u8 = undefined;
-    try scrypt(std.testing.allocator, &v, password, salt, null);
+    try kdf(std.testing.allocator, &v, password, salt, null);
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;

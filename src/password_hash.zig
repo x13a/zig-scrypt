@@ -52,7 +52,7 @@ pub fn PasswordHash(comptime T: type) type {
                 s1 = it.next() orelse return res;
             }
             if (mem.indexOf(u8, s1, kv_delimiter) != null) {
-                res.params = try T.fromString(s1);
+                res.params = try T.fromPhcString(s1);
             }
             const salt = try b64decode(
                 allocator,
@@ -101,7 +101,7 @@ pub fn PasswordHash(comptime T: type) type {
             }
             var params: []const u8 = undefined;
             if (self.params) |v| {
-                params = try v.toString(self.allocator);
+                params = try v.toPhcString(self.allocator);
                 i += params.len + fields_delimiter.len;
             }
             errdefer self.allocator.free(params);
