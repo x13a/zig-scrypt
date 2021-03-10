@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 // https://tools.ietf.org/html/rfc7914
 // https://github.com/golang/crypto/blob/master/scrypt/scrypt.go
 
@@ -108,15 +114,15 @@ fn smix(b: []align(16) u8, r: u32, n: usize, v: []align(16) u32, xy: []align(16)
     }
 }
 
-const Error = error{
+const Error1 = error{
     InvalidParams,
     InvalidDerivedKeyLen,
 };
 
 // +Pbkdf2Error
-pub const ScryptError = Error || mem.Allocator.Error;
+pub const Error = Error1 || mem.Allocator.Error;
 
-pub const ScryptParams = struct {
+pub const Params = struct {
     const Self = @This();
 
     log_n: u6 = 15,
@@ -136,16 +142,16 @@ pub const ScryptParams = struct {
         const r: u32 = 8;
         if (ops < mem_limit / 32) {
             const max_n = ops / (r * 4);
-            return ScryptParams{ .r = r, .p = 1, .log_n = @intCast(u6, math.log2(max_n)) };
+            return Self{ .r = r, .p = 1, .log_n = @intCast(u6, math.log2(max_n)) };
         } else {
             const max_n = mem_limit / (@intCast(usize, r) * 128);
             const log_n = @intCast(u6, math.log2(max_n));
             const max_rp = math.min(0x3fffffff, (ops / 4) / (@as(u64, 1) << log_n));
-            return ScryptParams{ .r = r, .p = @intCast(u32, max_rp / @as(u64, r)), .log_n = log_n };
+            return Self{ .r = r, .p = @intCast(u32, max_rp / @as(u64, r)), .log_n = log_n };
         }
     }
 
-    pub fn fromPhcString(s: []const u8) pwhash.PasswordHashError!Self {
+    pub fn fromPhcString(s: []const u8) pwhash.Error!Self {
         var res = Self{};
         var it = pwhash.ParamsIterator.init(s, 3);
         while (try it.next()) |param| {
@@ -172,18 +178,35 @@ pub const ScryptParams = struct {
     }
 };
 
-// TODO return ScryptError
+// TODO return Error
+
+/// Apply SCRYPT to generate a key from a password.
+///
+/// SCRYPT is defined in RFC 7914.
+///
+/// allocator: *mem.Allocator.
+///
+/// derived_key: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
+///              May be uninitialized. All bytes will be overwritten.
+///              Maximum size is `derived_key.len / 32 == 0xffff_ffff`.
+///              It is a programming error to pass buffer longer than the maximum size.
+///
+/// password: Arbitrary sequence of bytes of any length.
+///
+/// salt: Arbitrary sequence of bytes of any length.
+///
+/// params: Optional Params. Defaults may change in future.
 pub fn kdf(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8,
     salt: []const u8,
-    params: ?ScryptParams,
+    params: ?Params,
 ) !void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
         return error.InvalidDerivedKeyLen;
     }
-    const param = params orelse ScryptParams{};
+    const param = params orelse Params{};
     const n = @as(usize, 1) << param.log_n;
     if (n <= 1 or n & (n - 1) != 0) {
         return error.InvalidParams;

@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2015-2021 Zig Contributors
+// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
+// The MIT license requires this copyright notice to be included in all copies
+// and substantial portions of the software.
+
 // https://github.com/P-H-C/phc-string-format/blob/master/phc-sf-spec.md
 // https://github.com/P-H-C/phc-string-format/pull/4
 
@@ -14,13 +20,13 @@ const version_prefix = "v=";
 pub const params_delimiter = ",";
 pub const kv_delimiter = "=";
 
-const Error = error{
+const Error1 = error{
     ParseError,
     InvalidAlgorithm,
 };
 
 // TODO base64 doesn't have one error set
-pub const PasswordHashError = Error || mem.Allocator.Error || fmt.ParseIntError;
+pub const Error = Error1 || mem.Allocator.Error || fmt.ParseIntError;
 
 pub fn PasswordHash(comptime T: type) type {
     return struct {
@@ -75,7 +81,7 @@ pub fn PasswordHash(comptime T: type) type {
             return res;
         }
 
-        pub fn check_id(self: *Self, alg_id: []const u8) PasswordHashError!void {
+        pub fn check_id(self: *Self, alg_id: []const u8) Error!void {
             if (!mem.eql(u8, self.alg_id, alg_id)) {
                 return error.InvalidAlgorithm;
             }
@@ -230,7 +236,7 @@ pub const ParamsIterator = struct {
         return Self{ .it = mem.split(s, params_delimiter), .limit = limit };
     }
 
-    pub fn next(self: *Self) PasswordHashError!?Param {
+    pub fn next(self: *Self) Error!?Param {
         const s = self.it.next() orelse return null;
         if (self.pos == self.limit) {
             return error.ParseError;
@@ -257,7 +263,7 @@ pub const ParamsIterator = struct {
 
 test "password hash" {
     const scrypt = @import("scrypt.zig");
-    const ph = PasswordHash(scrypt.ScryptParams);
+    const ph = PasswordHash(scrypt.Params);
     const alloc = std.testing.allocator;
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
     var v = try ph.fromString(alloc, s);
