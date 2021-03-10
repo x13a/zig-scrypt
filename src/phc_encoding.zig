@@ -28,7 +28,7 @@ const Error1 = error{
 // TODO base64 doesn't have one error set
 pub const Error = Error1 || mem.Allocator.Error || fmt.ParseIntError;
 
-pub fn PasswordHash(comptime T: type) type {
+pub fn PhcEncoding(comptime T: type) type {
     return struct {
         const Self = @This();
 
@@ -261,12 +261,12 @@ pub const ParamsIterator = struct {
     }
 };
 
-test "password hash" {
+test "password hashing (phc format)" {
     const scrypt = @import("scrypt.zig");
-    const ph = PasswordHash(scrypt.Params);
+    const phc = PhcEncoding(scrypt.Params);
     const alloc = std.testing.allocator;
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
-    var v = try ph.fromString(alloc, s);
+    var v = try phc.fromString(alloc, s);
     defer v.deinit();
     const s1 = try v.toString();
     defer alloc.free(s1);

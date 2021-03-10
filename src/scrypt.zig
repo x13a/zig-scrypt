@@ -15,10 +15,10 @@ const mem = std.mem;
 
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 
-const pwhash = @import("password_hash.zig");
+const phc = @import("phc_encoding.zig");
 
 const max_int = math.maxInt(u64) >> 1;
-pub const alg_id = "scrypt";
+pub const phc_alg_id = "scrypt";
 
 fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
     mem.copy(u32, dst, src[0 .. n * 16]);
@@ -151,9 +151,9 @@ pub const Params = struct {
         }
     }
 
-    pub fn fromPhcString(s: []const u8) pwhash.Error!Self {
+    pub fn fromPhcString(s: []const u8) phc.Error!Self {
         var res = Self{};
-        var it = pwhash.ParamsIterator.init(s, 3);
+        var it = phc.ParamsIterator.init(s, 3);
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "ln")) {
                 res.log_n = try param.decimal(u6);
