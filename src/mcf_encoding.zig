@@ -12,7 +12,7 @@ const mem = std.mem;
 
 const scrypt = @import("scrypt.zig");
 
-const Error = error{
+pub const Error = error{
     ParseError,
     InvalidAlgorithm,
 };
