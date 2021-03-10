@@ -46,10 +46,7 @@ pub fn PhcEncoding(comptime T: type) type {
             if (alg_id.len == 0 or alg_id.len > 32) {
                 return error.ParseError;
             }
-            var res = Self{
-                .allocator = allocator,
-                .alg_id = alg_id,
-            };
+            var res = Self{ .allocator = allocator, .alg_id = alg_id };
             var s1 = it.next() orelse return res;
             if (mem.startsWith(u8, s1, version_prefix) and
                 mem.indexOf(u8, s1, params_delimiter) == null)
@@ -254,10 +251,7 @@ pub const ParamsIterator = struct {
             return error.ParseError;
         }
         self.pos += 1;
-        return Param{
-            .key = key,
-            .value = value,
-        };
+        return Param{ .key = key, .value = value };
     }
 };
 

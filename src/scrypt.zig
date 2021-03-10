@@ -130,11 +130,7 @@ pub const Params = struct {
     p: u32 = 1,
 
     pub fn init(log_n: u6, r: u32, p: u32) Self {
-        return Self{
-            .log_n = log_n,
-            .r = r,
-            .p = p,
-        };
+        return Self{ .log_n = log_n, .r = r, .p = p };
     }
 
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
