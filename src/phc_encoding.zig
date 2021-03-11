@@ -121,7 +121,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             errdefer self.allocator.free(key);
             var buf = try self.allocator.alloc(u8, i);
-            var w = Writer.new(self.allocator, buf);
+            var w = Writer{ .allocator = self.allocator, .buf = buf };
             w.write(self.alg_id, false);
             if (self.version) |v| {
                 _ = fmt.bufPrint(
@@ -145,10 +145,6 @@ const Writer = struct {
     allocator: *mem.Allocator,
     buf: []u8,
     pos: usize = 0,
-
-    fn new(allocator: *mem.Allocator, buf: []u8) Self {
-        return Self{ .allocator = allocator, .buf = buf };
-    }
 
     fn write(self: *Self, v: []const u8, free: bool) void {
         if (v.len == 0) {
