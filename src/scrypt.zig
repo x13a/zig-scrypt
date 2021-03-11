@@ -158,25 +158,25 @@ pub const Params = struct {
     }
 
     pub fn fromPhcString(s: []const u8) phc.Error!Self {
-        var param_ln: ?u6 = null;
-        var param_r: ?u30 = null;
-        var param_p: ?u30 = null;
+        var ln: ?u6 = null;
+        var r: ?u30 = null;
+        var p: ?u30 = null;
         var it = phc.ParamsIterator.new(s, 3);
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "ln")) {
-                param_ln = try param.decimal(u6);
+                ln = try param.decimal(u6);
             } else if (mem.eql(u8, param.key, "r")) {
-                param_r = try param.decimal(u30);
+                r = try param.decimal(u30);
             } else if (mem.eql(u8, param.key, "p")) {
-                param_p = try param.decimal(u30);
+                p = try param.decimal(u30);
             } else {
                 return error.ParseError;
             }
         }
         return Self{
-            .log_n = param_ln orelse return error.ParseError,
-            .r = param_r orelse return error.ParseError,
-            .p = param_p orelse return error.ParseError,
+            .log_n = ln orelse return error.ParseError,
+            .r = r orelse return error.ParseError,
+            .p = p orelse return error.ParseError,
         };
     }
 
