@@ -121,7 +121,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             errdefer self.allocator.free(key);
             var buf = try self.allocator.alloc(u8, i);
-            var w = Writer.init(self.allocator, buf);
+            var w = Writer.new(self.allocator, buf);
             w.write(self.alg_id, false);
             if (self.version) |v| {
                 _ = fmt.bufPrint(
@@ -146,7 +146,7 @@ const Writer = struct {
     buf: []u8,
     pos: usize = 0,
 
-    fn init(allocator: *mem.Allocator, buf: []u8) Self {
+    fn new(allocator: *mem.Allocator, buf: []u8) Self {
         return Self{ .allocator = allocator, .buf = buf };
     }
 
@@ -220,7 +220,7 @@ pub const ParamsIterator = struct {
     limit: usize,
     pos: usize = 0,
 
-    pub fn init(s: []const u8, limit: usize) Self {
+    pub fn new(s: []const u8, limit: usize) Self {
         return Self{ .it = mem.split(s, params_delimiter), .limit = limit };
     }
 

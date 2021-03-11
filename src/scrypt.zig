@@ -129,7 +129,7 @@ pub const Params = struct {
     r: u30,
     p: u30,
 
-    pub fn init(log_n: u6, r: u30, p: u30) Self {
+    pub fn new(log_n: u6, r: u30, p: u30) Self {
         return Self{ .log_n = log_n, .r = r, .p = p };
     }
 
@@ -159,7 +159,7 @@ pub const Params = struct {
         var param_ln: ?u6 = null;
         var param_r: ?u30 = null;
         var param_p: ?u30 = null;
-        var it = phc.ParamsIterator.init(s, 3);
+        var it = phc.ParamsIterator.new(s, 3);
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "ln")) {
                 param_ln = try param.decimal(u6);
@@ -248,7 +248,7 @@ test "kdf" {
     const salt = "saltsalt";
 
     var v: [32]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.init(15, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params.new(15, 8, 1));
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
