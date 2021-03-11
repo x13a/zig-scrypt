@@ -125,12 +125,20 @@ pub const Error = Error1 || mem.Allocator.Error;
 pub const Params = struct {
     const Self = @This();
 
-    log_n: u6 = 15,
-    r: u30 = 8,
-    p: u30 = 1,
+    log_n: u6,
+    r: u30,
+    p: u30,
 
     pub fn init(log_n: u6, r: u30, p: u30) Self {
         return Self{ .log_n = log_n, .r = r, .p = p };
+    }
+
+    pub fn interactive() Self {
+        return Self.fromLimits(524288, 16777216);
+    }
+
+    pub fn sensitive() Self {
+        return Self.fromLimits(33554432, 1073741824);
     }
 
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
@@ -148,20 +156,26 @@ pub const Params = struct {
     }
 
     pub fn fromPhcString(s: []const u8) phc.Error!Self {
-        var res = Self{};
+        var param_ln: ?u6 = null;
+        var param_r: ?u30 = null;
+        var param_p: ?u30 = null;
         var it = phc.ParamsIterator.init(s, 3);
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "ln")) {
-                res.log_n = try param.decimal(u6);
+                param_ln = try param.decimal(u6);
             } else if (mem.eql(u8, param.key, "r")) {
-                res.r = try param.decimal(u30);
+                param_r = try param.decimal(u30);
             } else if (mem.eql(u8, param.key, "p")) {
-                res.p = try param.decimal(u30);
+                param_p = try param.decimal(u30);
             } else {
                 return error.ParseError;
             }
         }
-        return res;
+        return Self{
+            .log_n = param_ln orelse return error.ParseError,
+            .r = param_r orelse return error.ParseError,
+            .p = param_p orelse return error.ParseError,
+        };
     }
 
     pub fn toPhcString(self: Self, allocator: *mem.Allocator) mem.Allocator.Error![]const u8 {
@@ -191,41 +205,40 @@ pub const Params = struct {
 ///
 /// salt: Arbitrary sequence of bytes of any length.
 ///
-/// params: Optional Params. Defaults may change in future.
+/// params: Params.
 pub fn kdf(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8,
     salt: []const u8,
-    params: ?Params,
+    params: Params,
 ) !void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
         return error.InvalidDerivedKeyLen;
     }
-    const param = params orelse Params{};
-    const n = @as(usize, 1) << param.log_n;
+    const n = @as(usize, 1) << params.log_n;
     if (n <= 1 or n & (n - 1) != 0) {
         return error.InvalidParams;
     }
-    if (@as(u64, param.r) * @as(u64, param.p) >= 1 << 30 or
-        param.r > max_int / 128 / @as(u64, param.p) or
-        param.r > max_int / 256 or
-        n > max_int / 128 / @as(u64, param.r))
+    if (@as(u64, params.r) * @as(u64, params.p) >= 1 << 30 or
+        params.r > max_int / 128 / @as(u64, params.p) or
+        params.r > max_int / 256 or
+        n > max_int / 128 / @as(u64, params.r))
     {
         return error.InvalidParams;
     }
 
-    var xy = try allocator.alignedAlloc(u32, 16, 64 * param.r);
+    var xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
     defer allocator.free(xy);
-    var v = try allocator.alignedAlloc(u32, 16, 32 * n * param.r);
+    var v = try allocator.alignedAlloc(u32, 16, 32 * n * params.r);
     defer allocator.free(v);
-    var dk = try allocator.alignedAlloc(u8, 16, param.p * 128 * param.r);
+    var dk = try allocator.alignedAlloc(u8, 16, params.p * 128 * params.r);
     defer allocator.free(dk);
 
     try crypto.pwhash.pbkdf2(dk, password, salt, 1, HmacSha256);
     var i: u32 = 0;
-    while (i < param.p) : (i += 1) {
-        smix(dk[i * 128 * param.r ..], param.r, n, v, xy);
+    while (i < params.p) : (i += 1) {
+        smix(dk[i * 128 * params.r ..], params.r, n, v, xy);
     }
     try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
@@ -235,7 +248,7 @@ test "kdf" {
     const salt = "saltsalt";
 
     var v: [32]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, null);
+    try kdf(std.testing.allocator, &v, password, salt, Params.init(15, 8, 1));
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
