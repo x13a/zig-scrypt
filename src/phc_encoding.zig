@@ -26,6 +26,7 @@ const PhcEncodingError = error{
 };
 
 // TODO add base64 error to Error
+// TODO PhcEncoding.fromString should return Error!Self
 pub const Error = PhcEncodingError || mem.Allocator.Error || fmt.ParseIntError;
 
 pub fn PhcEncoding(comptime T: type) type {
@@ -42,9 +43,9 @@ pub fn PhcEncoding(comptime T: type) type {
         pub fn fromString(allocator: *mem.Allocator, s: []const u8) !Self {
             var it = mem.split(s, fields_delimiter);
             _ = it.next();
-            const alg_id = it.next() orelse return error.ParseError;
+            const alg_id = it.next() orelse return Error.ParseError;
             if (alg_id.len == 0 or alg_id.len > 32) {
-                return error.ParseError;
+                return Error.ParseError;
             }
             var res = Self{ .allocator = allocator, .alg_id = alg_id };
             var s1 = it.next() orelse return res;
@@ -71,7 +72,7 @@ pub fn PhcEncoding(comptime T: type) type {
             );
             errdefer allocator.free(derived_key);
             if (it.next() != null) {
-                return error.ParseError;
+                return Error.ParseError;
             }
             res.salt = salt;
             res.derived_key = derived_key;
@@ -95,7 +96,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
-        pub fn toString(self: *Self) ![]const u8 {
+        pub fn toString(self: *Self) mem.Allocator.Error![]const u8 {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
@@ -159,7 +160,7 @@ const Writer = struct {
     }
 };
 
-fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
+fn b64encode(allocator: *mem.Allocator, v: []u8) mem.Allocator.Error![]u8 {
     // TODO use base64 encoding without padding
     var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
     _ = b64enc.encode(buf, v);
@@ -176,9 +177,10 @@ fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
     return buf;
 }
 
+// TODO b64decode should return Error![]u8
 fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
     if (s.len == 0) {
-        return error.ParseError;
+        return Error.ParseError;
     }
     var buf: []u8 = undefined;
     // TODO use base64 decoding without padding
