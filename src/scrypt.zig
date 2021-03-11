@@ -114,13 +114,13 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     }
 }
 
-const Error1 = error{
+const ScryptError = error{
     InvalidParams,
     InvalidDerivedKeyLen,
 };
 
 // +Pbkdf2Error
-pub const Error = Error1 || mem.Allocator.Error;
+pub const Error = ScryptError || mem.Allocator.Error;
 
 pub const Params = struct {
     const Self = @This();

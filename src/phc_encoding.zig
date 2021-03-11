@@ -20,13 +20,13 @@ const version_prefix = "v=";
 pub const params_delimiter = ",";
 pub const kv_delimiter = "=";
 
-const Error1 = error{
+const PhcEncodingError = error{
     ParseError,
     InvalidAlgorithm,
 };
 
 // TODO base64 doesn't have one error set
-pub const Error = Error1 || mem.Allocator.Error || fmt.ParseIntError;
+pub const Error = PhcEncodingError || mem.Allocator.Error || fmt.ParseIntError;
 
 pub fn PhcEncoding(comptime T: type) type {
     return struct {
