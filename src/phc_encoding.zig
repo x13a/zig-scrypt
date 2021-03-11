@@ -99,7 +99,7 @@ pub fn PhcEncoding(comptime T: type) type {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
-                versionLen = numLen(v) + version_prefix.len + fields_delimiter.len;
+                versionLen = fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v });
                 i += versionLen;
             }
             var params: []const u8 = undefined;
@@ -137,15 +137,6 @@ pub fn PhcEncoding(comptime T: type) type {
             return buf;
         }
     };
-}
-
-pub fn numLen(v: anytype) usize {
-    var i: usize = 1;
-    var n = v;
-    while (n >= 10) : (n /= 10) {
-        i += 1;
-    }
-    return i;
 }
 
 const Writer = struct {
