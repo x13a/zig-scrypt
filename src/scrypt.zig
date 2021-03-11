@@ -119,7 +119,9 @@ const ScryptError = error{
     InvalidDerivedKeyLen,
 };
 
-// +Pbkdf2Error
+// TODO add Pbkdf2Error to Error
+// https://github.com/ziglang/zig/issues/8156
+// TODO kdf function have to return Error!void
 pub const Error = ScryptError || mem.Allocator.Error;
 
 pub const Params = struct {
@@ -187,8 +189,6 @@ pub const Params = struct {
         return buf;
     }
 };
-
-// TODO return Error
 
 /// Apply SCRYPT to generate a key from a password.
 ///

@@ -25,7 +25,7 @@ const PhcEncodingError = error{
     InvalidAlgorithm,
 };
 
-// TODO base64 doesn't have one error set
+// TODO add base64 error to Error
 pub const Error = PhcEncodingError || mem.Allocator.Error || fmt.ParseIntError;
 
 pub fn PhcEncoding(comptime T: type) type {
@@ -164,9 +164,9 @@ const Writer = struct {
 };
 
 fn b64encode(allocator: *mem.Allocator, v: []u8) ![]u8 {
+    // TODO use base64 encoding without padding
     var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
     _ = b64enc.encode(buf, v);
-    // TODO base64 encoding without padding
     var i: usize = buf.len;
     while (i > 0) : (i -= 1) {
         if (buf[i - 1] != '=') {
@@ -184,8 +184,8 @@ fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
     if (s.len == 0) {
         return error.ParseError;
     }
-    // TODO std base64 decoder not working without padding
     var buf: []u8 = undefined;
+    // TODO use base64 decoding without padding
     if (s.len % 4 != 0) {
         var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
         defer allocator.free(s1);
