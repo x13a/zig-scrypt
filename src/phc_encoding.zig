@@ -37,7 +37,7 @@ pub fn PhcEncoding(comptime T: type) type {
         version: ?u32 = null,
         params: ?T = null,
         salt: ?[]u8 = null,
-        key: ?[]u8 = null,
+        derived_key: ?[]u8 = null,
 
         pub fn fromString(allocator: *mem.Allocator, s: []const u8) !Self {
             var it = mem.split(s, fields_delimiter);
@@ -62,19 +62,19 @@ pub fn PhcEncoding(comptime T: type) type {
                 it.next() orelse return res,
             );
             errdefer allocator.free(salt);
-            const key = try b64decode(
+            const derived_key = try b64decode(
                 allocator,
                 it.next() orelse {
                     res.salt = salt;
                     return res;
                 },
             );
-            errdefer allocator.free(key);
+            errdefer allocator.free(derived_key);
             if (it.next() != null) {
                 return error.ParseError;
             }
             res.salt = salt;
-            res.key = key;
+            res.derived_key = derived_key;
             return res;
         }
 
@@ -89,9 +89,9 @@ pub fn PhcEncoding(comptime T: type) type {
                 self.allocator.free(v);
                 self.salt = null;
             }
-            if (self.key) |v| {
+            if (self.derived_key) |v| {
                 self.allocator.free(v);
-                self.key = null;
+                self.derived_key = null;
             }
         }
 
@@ -114,12 +114,12 @@ pub fn PhcEncoding(comptime T: type) type {
                 i += salt.len + fields_delimiter.len;
             }
             errdefer self.allocator.free(salt);
-            var key: []u8 = undefined;
-            if (self.key) |v| {
-                key = try b64encode(self.allocator, v);
-                i += key.len + fields_delimiter.len;
+            var derived_key: []u8 = undefined;
+            if (self.derived_key) |v| {
+                derived_key = try b64encode(self.allocator, v);
+                i += derived_key.len + fields_delimiter.len;
             }
-            errdefer self.allocator.free(key);
+            errdefer self.allocator.free(derived_key);
             var buf = try self.allocator.alloc(u8, i);
             var w = Writer{ .allocator = self.allocator, .buf = buf };
             w.write(self.alg_id, false);
@@ -133,7 +133,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             w.write(params, true);
             w.write(salt, true);
-            w.write(key, true);
+            w.write(derived_key, true);
             return buf;
         }
     };
