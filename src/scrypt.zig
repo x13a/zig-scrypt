@@ -66,7 +66,7 @@ fn salsaXor(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16)
     blockCopy(out, tmp, 1);
 }
 
-fn blockMix(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16) u32, r: u32) void {
+fn blockMix(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16) u32, r: u30) void {
     blockCopy(tmp, in[(2 * r - 1) * 16 ..], 1);
     var i: usize = 0;
     while (i < 2 * r) : (i += 2) {
@@ -75,12 +75,12 @@ fn blockMix(tmp: *align(16) [16]u32, in: []align(16) const u32, out: []align(16)
     }
 }
 
-fn integerify(b: []align(16) const u32, r: u32) u64 {
+fn integerify(b: []align(16) const u32, r: u30) u64 {
     const j = (2 * r - 1) * 16;
     return @as(u64, b[j]) | @as(u64, b[j + 1]) << 32;
 }
 
-fn smix(b: []align(16) u8, r: u32, n: usize, v: []align(16) u32, xy: []align(16) u32) void {
+fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16) u32) void {
     var x = xy[0 .. 32 * r];
     var y = xy[32 * r ..];
 
@@ -126,16 +126,16 @@ pub const Params = struct {
     const Self = @This();
 
     log_n: u6 = 15,
-    r: u32 = 8,
-    p: u32 = 1,
+    r: u30 = 8,
+    p: u30 = 1,
 
-    pub fn init(log_n: u6, r: u32, p: u32) Self {
+    pub fn init(log_n: u6, r: u30, p: u30) Self {
         return Self{ .log_n = log_n, .r = r, .p = p };
     }
 
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
         const ops = math.max(32768, ops_limit);
-        const r: u32 = 8;
+        const r: u30 = 8;
         if (ops < mem_limit / 32) {
             const max_n = ops / (r * 4);
             return Self{ .r = r, .p = 1, .log_n = @intCast(u6, math.log2(max_n)) };
@@ -143,7 +143,7 @@ pub const Params = struct {
             const max_n = mem_limit / (@intCast(usize, r) * 128);
             const log_n = @intCast(u6, math.log2(max_n));
             const max_rp = math.min(0x3fffffff, (ops / 4) / (@as(u64, 1) << log_n));
-            return Self{ .r = r, .p = @intCast(u32, max_rp / @as(u64, r)), .log_n = log_n };
+            return Self{ .r = r, .p = @intCast(u30, max_rp / @as(u64, r)), .log_n = log_n };
         }
     }
 
@@ -154,9 +154,9 @@ pub const Params = struct {
             if (mem.eql(u8, param.key, "ln")) {
                 res.log_n = try param.decimal(u6);
             } else if (mem.eql(u8, param.key, "r")) {
-                res.r = try param.decimal(u32);
+                res.r = try param.decimal(u30);
             } else if (mem.eql(u8, param.key, "p")) {
-                res.p = try param.decimal(u32);
+                res.p = try param.decimal(u30);
             } else {
                 return error.ParseError;
             }
