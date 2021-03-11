@@ -12,13 +12,29 @@ const crypto = std.crypto;
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
-
-const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
+const meta = std.meta;
 
 const phc = @import("phc_encoding.zig");
 
+const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 const max_int = math.maxInt(u64) >> 1;
 pub const phc_alg_id = "scrypt";
+
+const ScryptError = error{
+    InvalidParams,
+    InvalidDerivedKeyLen,
+};
+
+// TODO add Pbkdf2Error to Error
+// https://github.com/ziglang/zig/issues/8156
+// TODO kdf function should return Error!void
+pub const Error = ScryptError || mem.Allocator.Error;
+
+pub const McfEncodingError = error{
+    ParseError,
+    InvalidAlgorithm,
+    VerificationError,
+};
 
 fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
     mem.copy(u32, dst, src[0 .. n * 16]);
@@ -114,16 +130,6 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
     }
 }
 
-const ScryptError = error{
-    InvalidParams,
-    InvalidDerivedKeyLen,
-};
-
-// TODO add Pbkdf2Error to Error
-// https://github.com/ziglang/zig/issues/8156
-// TODO kdf function have to return Error!void
-pub const Error = ScryptError || mem.Allocator.Error;
-
 pub const Params = struct {
     const Self = @This();
 
@@ -181,12 +187,11 @@ pub const Params = struct {
     }
 
     pub fn toPhcString(self: Self, allocator: *mem.Allocator) mem.Allocator.Error![]const u8 {
-        const buf = try fmt.allocPrint(
+        return fmt.allocPrint(
             allocator,
             "ln={d},r={d},p={d}",
             .{ self.log_n, self.r, self.p },
         );
-        return buf;
     }
 };
 
@@ -214,18 +219,18 @@ pub fn kdf(
     params: Params,
 ) !void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
-        return error.InvalidDerivedKeyLen;
+        return Error.InvalidDerivedKeyLen;
     }
     const n = @as(usize, 1) << params.log_n;
     if (n <= 1 or n & (n - 1) != 0) {
-        return error.InvalidParams;
+        return Error.InvalidParams;
     }
     if (@as(u64, params.r) * @as(u64, params.p) >= 1 << 30 or
         params.r > max_int / 128 / @as(u64, params.p) or
         params.r > max_int / 256 or
         n > max_int / 128 / @as(u64, params.r))
     {
-        return error.InvalidParams;
+        return Error.InvalidParams;
     }
 
     var xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
@@ -243,6 +248,107 @@ pub fn kdf(
     try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
 
+// https://en.wikipedia.org/wiki/Crypt_(C)
+// https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
+pub const McfEncoding = struct {
+    const Self = @This();
+    const map64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+    fn encodedLen(len: usize) usize {
+        return (len * 4 + 2) / 3;
+    }
+
+    fn intEncode(dst: []u8, src: anytype) void {
+        var n = src;
+        for (dst) |*x, i| {
+            x.* = map64[@truncate(u6, n)];
+            n = math.shr(@TypeOf(src), n, 6);
+        }
+    }
+
+    fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
+        var i: usize = 0;
+        while (i < src.len / 3) : (i += 1) {
+            intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
+        }
+        const leftover = src[i * 3 ..];
+        var v: u24 = 0;
+        for (leftover) |x, j| {
+            v |= @as(u24, x) << @intCast(u5, j * 8);
+        }
+        intEncode(dst[i * 4 ..], v);
+    }
+
+    fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) McfEncodingError!T {
+        var v: T = 0;
+        for (src) |x, i| {
+            const vi = mem.indexOfScalar(u8, map64, x) orelse return error.ParseError;
+            v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
+        }
+        return v;
+    }
+
+    fn parseParams(encoded: *const [14]u8) McfEncodingError!Params {
+        if (!mem.eql(u8, "$7$", encoded[0..3])) {
+            return error.InvalidAlgorithm;
+        }
+        return Params{
+            .log_n = try intDecode(u6, encoded[3..4]),
+            .r = try intDecode(u30, encoded[4..9]),
+            .p = try intDecode(u30, encoded[9..14]),
+        };
+    }
+
+    pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
+        if (str.len < 58) {
+            return McfEncodingError.ParseError;
+        }
+        const params = try Self.parseParams(str[0..14]);
+        var salt = str[14..];
+        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return McfEncodingError.ParseError];
+
+        var dk: [32]u8 = undefined;
+        try kdf(allocator, &dk, password, salt, params);
+
+        var encoded_dk: [encodedLen(dk.len)]u8 = undefined;
+        const expected_encoded_dk = str[14 + salt.len + 1 ..][0..43];
+        Self.sliceEncode(32, &encoded_dk, dk[0..]);
+        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk, expected_encoded_dk.*);
+        crypto.utils.secureZero(u8, &encoded_dk);
+        if (!passed) {
+            return McfEncodingError.VerificationError;
+        }
+    }
+
+    pub const pwhash_str_length: usize = 101;
+
+    pub fn create(
+        allocator: *mem.Allocator,
+        params: Params,
+        password: []const u8,
+    ) ![pwhash_str_length]u8 {
+        var salt_bin: [32]u8 = undefined;
+        crypto.random.bytes(&salt_bin);
+        var salt: [encodedLen(salt_bin.len)]u8 = undefined;
+        Self.sliceEncode(32, &salt, salt_bin[0..]);
+
+        var dk: [32]u8 = undefined;
+        try kdf(allocator, &dk, password, &salt, params);
+
+        var encoded_dk: [encodedLen(dk.len)]u8 = undefined;
+        Self.sliceEncode(32, &encoded_dk, dk[0..]);
+        var str: [pwhash_str_length]u8 = undefined;
+        mem.copy(u8, str[0..3], "$7$");
+        Self.intEncode(str[3..4], params.log_n);
+        Self.intEncode(str[4..9], params.r);
+        Self.intEncode(str[9..14], params.p);
+        mem.copy(u8, str[14..57], &salt);
+        str[57] = '$';
+        Self.sliceEncode(32, str[58..], dk[0..]);
+        return str;
+    }
+};
+
 test "kdf" {
     const password = "testpass";
     const salt = "saltsalt";
@@ -254,4 +360,14 @@ test "kdf" {
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try std.fmt.hexToBytes(&bytes, hex);
     std.testing.expectEqualSlices(u8, &bytes, &v);
+}
+
+test "password hashing (crypt format)" {
+    const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
+    const password = "Y0!?iQa9M%5ekffW(`";
+    try McfEncoding.verify(std.testing.allocator, str, password);
+
+    const params = Params.interactive();
+    const str2 = try McfEncoding.create(std.testing.allocator, params, password);
+    try McfEncoding.verify(std.testing.allocator, &str2, password);
 }
