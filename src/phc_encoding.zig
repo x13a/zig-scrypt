@@ -231,9 +231,6 @@ pub const ParamsIterator = struct {
             return error.ParseError;
         }
         const value = it.next() orelse return error.ParseError;
-        if (value.len == 0) {
-            return error.ParseError;
-        }
         if (it.next() != null) {
             return error.ParseError;
         }
