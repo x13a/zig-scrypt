@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const base64 = std.base64;
+const crypto = std.crypto;
 const fmt = std.fmt;
 const mem = std.mem;
 
@@ -87,11 +88,13 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
-        pub fn verify(self: *Self, derived_key: []u8) Error!void {
-            const ok = crypto.utils.timingSafeEql([]u8, derived_key, self.derived_key);
-            crypto.utils.secureZero(u8, derived_key);
-            crypto.utils.secureZero(u8, self.derived_key);
-            if (!ok) {
+        pub fn verify(allocator: *mem.Allocator, str: []const u8, derived_key: []const u8) !void {
+            var self = try Self.fromString(allocator, str);
+            defer self.deinit();
+            var dk = self.derived_key orelse return error.VerificationError;
+            defer crypto.utils.secureZero(u8, dk);
+            // TODO use crypto.utils.timingSafeEql
+            if (!mem.eql(u8, dk, derived_key)) {
                 return error.VerificationError;
             }
         }
@@ -116,9 +119,9 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             var params: ?[]const u8 = null;
             if (self.params) |v| {
-                const params1 = try v.toPhcString(self.allocator);
-                i += params1.len + fields_delimiter.len;
-                params = params1;
+                const s = try v.toPhcString(self.allocator);
+                i += s.len + fields_delimiter.len;
+                params = s;
             }
             defer {
                 if (params) |v| {
@@ -127,9 +130,9 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             var salt: ?[]const u8 = null;
             if (self.salt) |v| {
-                const salt1 = try b64encode(self.allocator, v);
-                i += salt1.len + fields_delimiter.len;
-                salt = salt1;
+                const s = try b64encode(self.allocator, v);
+                i += s.len + fields_delimiter.len;
+                salt = s;
             }
             defer {
                 if (salt) |v| {
@@ -141,9 +144,9 @@ pub fn PhcEncoding(comptime T: type) type {
                 if (salt == null) {
                     return error.NullSalt;
                 }
-                const derived_key1 = try b64encode(self.allocator, v);
-                i += derived_key1.len + fields_delimiter.len;
-                derived_key = derived_key1;
+                const s = try b64encode(self.allocator, v);
+                i += s.len + fields_delimiter.len;
+                derived_key = s;
             }
             defer {
                 if (derived_key) |v| {
@@ -175,7 +178,7 @@ fn write(buf: []u8, v: ?[]const u8) usize {
     return fields_delimiter.len + value.len;
 }
 
-fn b64encode(allocator: *mem.Allocator, v: []u8) mem.Allocator.Error![]u8 {
+fn b64encode(allocator: *mem.Allocator, v: []const u8) mem.Allocator.Error![]u8 {
     // TODO use base64 encoding without padding
     var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
     _ = b64enc.encode(buf, v);
@@ -266,4 +269,5 @@ test "password hashing (phc format)" {
     const s1 = try v.toString();
     defer alloc.free(s1);
     std.testing.expectEqualSlices(u8, s, s1);
+    try phc.verify(alloc, s, "testpass");
 }
