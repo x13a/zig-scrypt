@@ -24,6 +24,7 @@ const PhcEncodingError = error{
     ParseError,
     InvalidAlgorithm,
     VerificationError,
+    NullSalt,
 };
 
 // TODO add base64 error to Error
@@ -106,7 +107,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
-        pub fn toString(self: *Self) mem.Allocator.Error![]const u8 {
+        pub fn toString(self: *Self) Error![]const u8 {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
@@ -137,6 +138,9 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             var derived_key: ?[]const u8 = null;
             if (self.derived_key) |v| {
+                if (salt == null) {
+                    return error.NullSalt;
+                }
                 const derived_key1 = try b64encode(self.allocator, v);
                 i += derived_key1.len + fields_delimiter.len;
                 derived_key = derived_key1;
