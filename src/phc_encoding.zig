@@ -113,70 +113,63 @@ pub fn PhcEncoding(comptime T: type) type {
                 versionLen = fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v });
                 i += versionLen;
             }
-            var params: []const u8 = undefined;
+            var params: ?[]const u8 = null;
             if (self.params) |v| {
-                params = try v.toPhcString(self.allocator);
-                i += params.len + fields_delimiter.len;
+                const params1 = try v.toPhcString(self.allocator);
+                i += params1.len + fields_delimiter.len;
+                params = params1;
             }
             defer {
-                if (self.params != null) {
-                    self.allocator.free(params);
+                if (params) |v| {
+                    self.allocator.free(v);
                 }
             }
-            var salt: []u8 = undefined;
+            var salt: ?[]const u8 = null;
             if (self.salt) |v| {
-                salt = try b64encode(self.allocator, v);
-                i += salt.len + fields_delimiter.len;
+                const salt1 = try b64encode(self.allocator, v);
+                i += salt1.len + fields_delimiter.len;
+                salt = salt1;
             }
             defer {
-                if (self.salt != null) {
-                    self.allocator.free(salt);
+                if (salt) |v| {
+                    self.allocator.free(v);
                 }
             }
-            var derived_key: []u8 = undefined;
+            var derived_key: ?[]const u8 = null;
             if (self.derived_key) |v| {
-                derived_key = try b64encode(self.allocator, v);
-                i += derived_key.len + fields_delimiter.len;
+                const derived_key1 = try b64encode(self.allocator, v);
+                i += derived_key1.len + fields_delimiter.len;
+                derived_key = derived_key1;
             }
             defer {
-                if (self.derived_key != null) {
-                    self.allocator.free(derived_key);
+                if (derived_key) |v| {
+                    self.allocator.free(v);
                 }
             }
             var buf = try self.allocator.alloc(u8, i);
-            var w = Writer{ .buf = buf };
-            w.write(self.alg_id);
+            i = write(buf, self.alg_id);
             if (self.version) |v| {
                 _ = fmt.bufPrint(
-                    buf[w.pos..],
+                    buf[i..],
                     "{s}{s}{d}",
                     .{ fields_delimiter, version_prefix, v },
                 ) catch unreachable;
-                w.pos += versionLen;
+                i += versionLen;
             }
-            w.write(params);
-            w.write(salt);
-            w.write(derived_key);
+            i += write(buf[i..], params);
+            i += write(buf[i..], salt);
+            _ = write(buf[i..], derived_key);
             return buf;
         }
     };
 }
 
-const Writer = struct {
-    const Self = @This();
-
-    buf: []u8,
-    pos: usize = 0,
-
-    fn write(self: *Self, v: []const u8) void {
-        if (v.len == 0) {
-            return;
-        }
-        mem.copy(u8, self.buf[self.pos..], fields_delimiter);
-        mem.copy(u8, self.buf[self.pos + fields_delimiter.len ..], v);
-        self.pos += fields_delimiter.len + v.len;
-    }
-};
+fn write(buf: []u8, v: ?[]const u8) usize {
+    var value = v orelse return 0;
+    mem.copy(u8, buf, fields_delimiter);
+    mem.copy(u8, buf[fields_delimiter.len..], value);
+    return fields_delimiter.len + value.len;
+}
 
 fn b64encode(allocator: *mem.Allocator, v: []u8) mem.Allocator.Error![]u8 {
     // TODO use base64 encoding without padding
