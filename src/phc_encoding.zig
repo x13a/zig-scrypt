@@ -23,6 +23,7 @@ pub const kv_delimiter = "=";
 const PhcEncodingError = error{
     ParseError,
     InvalidAlgorithm,
+    VerificationError,
 };
 
 // TODO add base64 error to Error
@@ -85,6 +86,15 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
+        pub fn verify(self: *Self, derived_key: []u8) Error!void {
+            const ok = crypto.utils.timingSafeEql([]u8, derived_key, self.derived_key);
+            crypto.utils.secureZero(u8, derived_key);
+            crypto.utils.secureZero(u8, self.derived_key);
+            if (!ok) {
+                return error.VerificationError;
+            }
+        }
+
         pub fn deinit(self: *Self) void {
             if (self.salt) |v| {
                 self.allocator.free(v);
@@ -108,22 +118,34 @@ pub fn PhcEncoding(comptime T: type) type {
                 params = try v.toPhcString(self.allocator);
                 i += params.len + fields_delimiter.len;
             }
-            errdefer self.allocator.free(params);
+            defer {
+                if (self.params != null) {
+                    self.allocator.free(params);
+                }
+            }
             var salt: []u8 = undefined;
             if (self.salt) |v| {
                 salt = try b64encode(self.allocator, v);
                 i += salt.len + fields_delimiter.len;
             }
-            errdefer self.allocator.free(salt);
+            defer {
+                if (self.salt != null) {
+                    self.allocator.free(salt);
+                }
+            }
             var derived_key: []u8 = undefined;
             if (self.derived_key) |v| {
                 derived_key = try b64encode(self.allocator, v);
                 i += derived_key.len + fields_delimiter.len;
             }
-            errdefer self.allocator.free(derived_key);
+            defer {
+                if (self.derived_key != null) {
+                    self.allocator.free(derived_key);
+                }
+            }
             var buf = try self.allocator.alloc(u8, i);
-            var w = Writer{ .allocator = self.allocator, .buf = buf };
-            w.write(self.alg_id, false);
+            var w = Writer{ .buf = buf };
+            w.write(self.alg_id);
             if (self.version) |v| {
                 _ = fmt.bufPrint(
                     buf[w.pos..],
@@ -132,9 +154,9 @@ pub fn PhcEncoding(comptime T: type) type {
                 ) catch unreachable;
                 w.pos += versionLen;
             }
-            w.write(params, true);
-            w.write(salt, true);
-            w.write(derived_key, true);
+            w.write(params);
+            w.write(salt);
+            w.write(derived_key);
             return buf;
         }
     };
@@ -143,20 +165,16 @@ pub fn PhcEncoding(comptime T: type) type {
 const Writer = struct {
     const Self = @This();
 
-    allocator: *mem.Allocator,
     buf: []u8,
     pos: usize = 0,
 
-    fn write(self: *Self, v: []const u8, free: bool) void {
+    fn write(self: *Self, v: []const u8) void {
         if (v.len == 0) {
             return;
         }
         mem.copy(u8, self.buf[self.pos..], fields_delimiter);
         mem.copy(u8, self.buf[self.pos + fields_delimiter.len ..], v);
         self.pos += fields_delimiter.len + v.len;
-        if (free) {
-            self.allocator.free(v);
-        }
     }
 };
 
