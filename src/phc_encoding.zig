@@ -60,11 +60,9 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             if (mem.indexOf(u8, s1, kv_delimiter) != null) {
                 res.params = try T.fromPhcString(s1);
+                s1 = it.next() orelse return res;
             }
-            const salt = try b64decode(
-                allocator,
-                it.next() orelse return res,
-            );
+            const salt = try b64decode(allocator, s1);
             errdefer allocator.free(salt);
             const derived_key = try b64decode(
                 allocator,
@@ -179,7 +177,7 @@ fn write(buf: []u8, v: ?[]const u8) usize {
 }
 
 fn b64encode(allocator: *mem.Allocator, v: []const u8) mem.Allocator.Error![]u8 {
-    // TODO use base64 encoding without padding
+    // TODO use base64 encode without padding
     var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
     _ = b64enc.encode(buf, v);
     var i: usize = buf.len;
@@ -201,7 +199,7 @@ fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
         return Error.ParseError;
     }
     var buf: []u8 = undefined;
-    // TODO use base64 decoding without padding
+    // TODO use base64 decode without padding
     if (s.len % 4 != 0) {
         var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
         defer allocator.free(s1);
@@ -259,15 +257,200 @@ pub const ParamsIterator = struct {
     }
 };
 
-test "password hashing (phc format)" {
+test "conv" {
     const scrypt = @import("scrypt.zig");
-    const phc = PhcEncoding(scrypt.Params);
     const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+
     var v = try phc.fromString(alloc, s);
     defer v.deinit();
+
     const s1 = try v.toString();
     defer alloc.free(s1);
+
     std.testing.expectEqualSlices(u8, s, s1);
-    try phc.verify(alloc, s, "testpass");
+}
+
+test "verify" {
+    const scrypt = @import("scrypt.zig");
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+
+    try phc.verify(std.testing.allocator, s, "testpass");
+}
+
+test "check_id" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    try v.check_id("scrypt");
+}
+
+test "conv only id" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv only version" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv only params" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$ln=15,r=8,p=1";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv only salt" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$c2FsdHNhbHQ";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv without derived_key" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv without salt" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1$ln=15,r=8,p=1";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv without params" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv without version" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv without params and derived_key" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$v=1$c2FsdHNhbHQ";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
+}
+
+test "conv without version and params" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const phc = PhcEncoding(scrypt.Params);
+    const s = "$scrypt$c2FsdHNhbHQ$dGVzdHBhc3M";
+
+    var v = try phc.fromString(alloc, s);
+    defer v.deinit();
+
+    const s1 = try v.toString();
+    defer alloc.free(s1);
+
+    std.testing.expectEqualSlices(u8, s, s1);
 }
