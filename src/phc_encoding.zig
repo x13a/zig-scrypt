@@ -122,7 +122,42 @@ pub fn PhcEncoding(comptime T: type) type {
             }
             var params: ?[]const u8 = null;
             if (self.params) |v| {
-                const s = try v.toPhcString(self.allocator);
+                var params_arr: [@typeInfo(T).Struct.fields.len]?Param = undefined;
+                try v.toPhcEncoding(self.allocator, &params_arr);
+                var j: usize = 0;
+                var sep_cnt: usize = 0;
+                for (params_arr) |param| {
+                    const v1 = param orelse continue;
+                    j += v1.key.len + kv_delimiter.len + v1.value.len;
+                    sep_cnt += 1;
+                }
+                if (sep_cnt != 0) {
+                    sep_cnt -= 1;
+                }
+                errdefer {
+                    for (params_arr) |param| {
+                        const v1 = param orelse continue;
+                        self.allocator.free(v1.value);
+                    }
+                }
+                var s = try self.allocator.alloc(u8, j + sep_cnt * params_delimiter.len);
+                j = 0;
+                var k: usize = 0;
+                for (params_arr) |param| {
+                    const v1 = param orelse continue;
+                    const s1 = fmt.bufPrint(
+                        s[j..],
+                        "{s}{s}{s}",
+                        .{ v1.key, kv_delimiter, v1.value },
+                    ) catch unreachable;
+                    self.allocator.free(v1.value);
+                    j += s1.len;
+                    if (k < sep_cnt) {
+                        mem.copy(u8, s[j..], params_delimiter);
+                        j += params_delimiter.len;
+                        k += 1;
+                    }
+                }
                 i += s.len + fields_delimiter.len;
                 params = s;
             }
@@ -227,6 +262,10 @@ pub const Param = struct {
     key: []const u8,
     value: []const u8,
 
+    pub fn new(k: []const u8, v: []const u8) Self {
+        return Self{ .key = k, .value = v };
+    }
+
     pub fn decimal(self: Self, comptime T: type) fmt.ParseIntError!T {
         return fmt.parseInt(T, self.value, 10);
     }
@@ -258,7 +297,7 @@ pub const ParamsIterator = struct {
             return error.ParseError;
         }
         self.pos += 1;
-        return Param{ .key = key, .value = value };
+        return Param.new(key, value);
     }
 };
 

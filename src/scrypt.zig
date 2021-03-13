@@ -185,12 +185,19 @@ pub const Params = struct {
         };
     }
 
-    pub fn toPhcString(self: Self, allocator: *mem.Allocator) mem.Allocator.Error![]const u8 {
-        return fmt.allocPrint(
-            allocator,
-            "ln={d},r={d},p={d}",
-            .{ self.log_n, self.r, self.p },
-        );
+    pub fn toPhcEncoding(
+        self: Self,
+        allocator: *mem.Allocator,
+        out: []?phc.Param,
+    ) mem.Allocator.Error!void {
+        const ln = try fmt.allocPrint(allocator, "{d}", .{self.log_n});
+        errdefer allocator.free(ln);
+        const r = try fmt.allocPrint(allocator, "{d}", .{self.r});
+        errdefer allocator.free(r);
+        const p = try fmt.allocPrint(allocator, "{d}", .{self.p});
+        out[0] = phc.Param.new("ln", ln);
+        out[1] = phc.Param.new("r", r);
+        out[2] = phc.Param.new("p", p);
     }
 };
 
