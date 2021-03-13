@@ -43,27 +43,27 @@ pub fn PhcEncoding(comptime T: type) type {
         salt: ?[]u8 = null,
         derived_key: ?[]u8 = null,
 
-        pub fn fromString(allocator: *mem.Allocator, s: []const u8) !Self {
-            var it = mem.split(s, fields_delimiter);
+        pub fn fromString(allocator: *mem.Allocator, str: []const u8) !Self {
+            var it = mem.split(str, fields_delimiter);
             _ = it.next();
             const alg_id = it.next() orelse return Error.ParseError;
             if (alg_id.len == 0 or alg_id.len > 32) {
                 return Error.ParseError;
             }
             var res = Self{ .allocator = allocator, .alg_id = alg_id };
-            var s1 = it.next() orelse return res;
-            if (mem.startsWith(u8, s1, version_prefix) and
-                mem.indexOf(u8, s1, params_delimiter) == null)
+            var s = it.next() orelse return res;
+            if (mem.startsWith(u8, s, version_prefix) and
+                mem.indexOf(u8, s, params_delimiter) == null)
             {
-                res.version = try fmt.parseInt(u32, s1[version_prefix.len..], 10);
-                s1 = it.next() orelse return res;
+                res.version = try fmt.parseInt(u32, s[version_prefix.len..], 10);
+                s = it.next() orelse return res;
             }
-            if (mem.indexOf(u8, s1, kv_delimiter) != null) {
-                var params_it = ParamsIterator.new(s1, @typeInfo(T).Struct.fields.len);
+            if (mem.indexOf(u8, s, kv_delimiter) != null) {
+                var params_it = ParamsIterator.new(s, @typeInfo(T).Struct.fields.len);
                 res.params = try T.fromPhcEncoding(&params_it);
-                s1 = it.next() orelse return res;
+                s = it.next() orelse return res;
             }
-            const salt = try b64decode(allocator, s1);
+            const salt = try b64decode(allocator, s);
             errdefer allocator.free(salt);
             const derived_key = try b64decode(
                 allocator,
@@ -127,8 +127,8 @@ pub fn PhcEncoding(comptime T: type) type {
                 var j: usize = 0;
                 var sep_cnt: usize = 0;
                 for (params_arr) |param| {
-                    const v1 = param orelse continue;
-                    j += v1.key.len + kv_delimiter.len + v1.value.len;
+                    const kv = param orelse continue;
+                    j += kv.key.len + kv_delimiter.len + kv.value.len;
                     sep_cnt += 1;
                 }
                 if (sep_cnt != 0) {
@@ -136,21 +136,21 @@ pub fn PhcEncoding(comptime T: type) type {
                 }
                 errdefer {
                     for (params_arr) |param| {
-                        const v1 = param orelse continue;
-                        self.allocator.free(v1.value);
+                        const kv = param orelse continue;
+                        self.allocator.free(kv.value);
                     }
                 }
                 var s = try self.allocator.alloc(u8, j + sep_cnt * params_delimiter.len);
                 j = 0;
                 var k: usize = 0;
                 for (params_arr) |param| {
-                    const v1 = param orelse continue;
+                    const kv = param orelse continue;
                     const s1 = fmt.bufPrint(
                         s[j..],
                         "{s}{s}{s}",
-                        .{ v1.key, kv_delimiter, v1.value },
+                        .{ kv.key, kv_delimiter, kv.value },
                     ) catch unreachable;
-                    self.allocator.free(v1.value);
+                    self.allocator.free(kv.value);
                     j += s1.len;
                     if (k < sep_cnt) {
                         mem.copy(u8, s[j..], params_delimiter);
@@ -262,8 +262,8 @@ pub const Param = struct {
     key: []const u8,
     value: []const u8,
 
-    pub fn new(k: []const u8, v: []const u8) Self {
-        return Self{ .key = k, .value = v };
+    pub fn new(key: []const u8, value: []const u8) Self {
+        return Self{ .key = key, .value = value };
     }
 
     pub fn decimal(self: Self, comptime T: type) fmt.ParseIntError!T {
@@ -278,7 +278,7 @@ pub const ParamsIterator = struct {
     limit: usize,
     pos: usize = 0,
 
-    pub fn new(s: []const u8, limit: usize) Self {
+    fn new(s: []const u8, limit: usize) Self {
         return Self{ .it = mem.split(s, params_delimiter), .limit = limit };
     }
 
