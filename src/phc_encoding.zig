@@ -284,12 +284,11 @@ test "verify" {
 
 test "check_id" {
     const scrypt = @import("scrypt.zig");
-    const alloc = std.testing.allocator;
 
     const phc = PhcEncoding(scrypt.Params);
     const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
 
-    var v = try phc.fromString(alloc, s);
+    var v = try phc.fromString(std.testing.allocator, s);
     defer v.deinit();
 
     try v.check_id("scrypt");
