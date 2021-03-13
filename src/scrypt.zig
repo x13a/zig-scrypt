@@ -203,7 +203,6 @@ pub const Params = struct {
 /// derived_key: Slice of appropriate size for generated key. Generally 16 or 32 bytes in length.
 ///              May be uninitialized. All bytes will be overwritten.
 ///              Maximum size is `derived_key.len / 32 == 0xffff_ffff`.
-///              It is a programming error to pass buffer longer than the maximum size.
 ///
 /// password: Arbitrary sequence of bytes of any length.
 ///
