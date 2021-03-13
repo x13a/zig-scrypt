@@ -163,11 +163,10 @@ pub const Params = struct {
         }
     }
 
-    pub fn fromPhcString(s: []const u8) phc.Error!Self {
+    pub fn fromPhcEncoding(it: *phc.ParamsIterator) phc.Error!Self {
         var ln: ?u6 = null;
         var r: ?u30 = null;
         var p: ?u30 = null;
-        var it = phc.ParamsIterator.new(s, 3);
         while (try it.next()) |param| {
             if (mem.eql(u8, param.key, "ln")) {
                 ln = try param.decimal(u6);

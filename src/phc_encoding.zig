@@ -59,7 +59,8 @@ pub fn PhcEncoding(comptime T: type) type {
                 s1 = it.next() orelse return res;
             }
             if (mem.indexOf(u8, s1, kv_delimiter) != null) {
-                res.params = try T.fromPhcString(s1);
+                var params_it = ParamsIterator.new(s1, @typeInfo(T).Struct.fields.len);
+                res.params = try T.fromPhcEncoding(&params_it);
                 s1 = it.next() orelse return res;
             }
             const salt = try b64decode(allocator, s1);
