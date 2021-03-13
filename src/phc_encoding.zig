@@ -94,11 +94,11 @@ pub fn PhcEncoding(comptime T: type) type {
         ) !void {
             var self = try Self.fromString(allocator, str);
             defer self.deinit();
-            var dk = self.derived_key orelse return error.VerificationError;
+            var dk = self.derived_key orelse return Error.VerificationError;
             defer crypto.utils.secureZero(u8, dk);
             // TODO use crypto.utils.timingSafeEql
             if (!mem.eql(u8, dk, derived_key)) {
-                return error.VerificationError;
+                return Error.VerificationError;
             }
         }
 
