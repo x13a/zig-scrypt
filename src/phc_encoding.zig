@@ -86,7 +86,11 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
-        pub fn verify(allocator: *mem.Allocator, str: []const u8, derived_key: []const u8) !void {
+        pub fn verify(
+            allocator: *mem.Allocator,
+            str: []const u8,
+            derived_key: []const u8,
+        ) !void {
             var self = try Self.fromString(allocator, str);
             defer self.deinit();
             var dk = self.derived_key orelse return error.VerificationError;
