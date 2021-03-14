@@ -296,7 +296,8 @@ pub const McfEncoding = struct {
         return s;
     }
 
-    fn encodedLen(len: usize) usize {
+    /// Calculate size for encoding
+    pub fn encodedLen(len: usize) usize {
         return (len * 4 + 2) / 3;
     }
 
