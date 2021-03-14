@@ -431,6 +431,12 @@ test "kdf rfc 3" {
 }
 
 test "kdf rfc 4" {
+
+    // skip slow test
+    if (true) {
+        return error.SkipZigTest;
+    }
+
     const password = "pleaseletmein";
     const salt = "SodiumChloride";
 
