@@ -257,7 +257,9 @@ pub const McfEncoding = struct {
     const map64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
     params: Params,
+    // encoded
     salt: []const u8,
+    // encoded
     derived_key: []const u8,
 
     pub fn fromString(str: []const u8) McfEncodingError!Self {
