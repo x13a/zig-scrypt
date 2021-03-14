@@ -28,8 +28,6 @@ const PhcEncodingError = error{
     NullSalt,
 };
 
-// TODO add base64 error to Error
-// TODO PhcEncoding.fromString should return Error!Self
 pub const Error = PhcEncodingError || mem.Allocator.Error || fmt.ParseIntError;
 
 pub fn PhcEncoding(comptime T: type) type {
@@ -96,7 +94,6 @@ pub fn PhcEncoding(comptime T: type) type {
             defer self.deinit();
             var dk = self.derived_key orelse return Error.VerificationError;
             defer crypto.utils.secureZero(u8, dk);
-            // TODO use crypto.utils.timingSafeEql
             if (!mem.eql(u8, dk, derived_key)) {
                 return Error.VerificationError;
             }
@@ -217,7 +214,6 @@ fn write(buf: []u8, v: ?[]const u8) usize {
 }
 
 fn b64encode(allocator: *mem.Allocator, v: []const u8) mem.Allocator.Error![]u8 {
-    // TODO use base64 encode without padding
     var buf = try allocator.alloc(u8, base64.Base64Encoder.calcSize(v.len));
     _ = b64enc.encode(buf, v);
     var i: usize = buf.len;
@@ -233,13 +229,11 @@ fn b64encode(allocator: *mem.Allocator, v: []const u8) mem.Allocator.Error![]u8 
     return buf;
 }
 
-// TODO b64decode should return Error![]u8
 fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
     if (s.len == 0) {
         return Error.ParseError;
     }
     var buf: []u8 = undefined;
-    // TODO use base64 decode without padding
     if (s.len % 4 != 0) {
         var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
         defer allocator.free(s1);

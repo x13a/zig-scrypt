@@ -25,9 +25,6 @@ const ScryptError = error{
     InvalidDerivedKeyLen,
 };
 
-// TODO add Pbkdf2Error to Error
-// https://github.com/ziglang/zig/issues/8156
-// TODO kdf function should return Error!void
 pub const Error = ScryptError || mem.Allocator.Error;
 
 pub const McfEncodingError = error{
@@ -259,6 +256,36 @@ pub const McfEncoding = struct {
     const Self = @This();
     const map64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
+    params: Params,
+    salt: []const u8,
+    derived_key: []const u8,
+
+    pub fn fromString(str: []const u8) McfEncodingError!Self {
+        if (str.len < 58) {
+            return error.ParseError;
+        }
+        const params = try Self.parseParams(str[0..14]);
+        var salt = str[14..];
+        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
+        return Self{
+            .params = params,
+            .salt = salt,
+            .derived_key = str[14 + salt.len + 1 ..][0..43],
+        };
+    }
+
+    pub fn toString(self: *Self) [pwhash_str_length]u8 {
+        var s: [pwhash_str_length]u8 = undefined;
+        mem.copy(u8, s[0..3], "$7$");
+        Self.intEncode(s[3..4], self.params.log_n);
+        Self.intEncode(s[4..9], self.params.r);
+        Self.intEncode(s[9..14], self.params.p);
+        mem.copy(u8, s[14..57], self.salt);
+        s[57] = '$';
+        mem.copy(u8, s[58..], self.derived_key);
+        return s;
+    }
+
     fn encodedLen(len: usize) usize {
         return (len * 4 + 2) / 3;
     }
@@ -271,7 +298,7 @@ pub const McfEncoding = struct {
         }
     }
 
-    fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
+    pub fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
         var i: usize = 0;
         while (i < src.len / 3) : (i += 1) {
             intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
@@ -305,19 +332,14 @@ pub const McfEncoding = struct {
     }
 
     pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
-        if (str.len < 58) {
-            return McfEncodingError.ParseError;
-        }
-        const params = try Self.parseParams(str[0..14]);
-        var salt = str[14..];
-        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return McfEncodingError.ParseError];
+        var self = try Self.fromString(str);
 
         var dk: [32]u8 = undefined;
-        try kdf(allocator, &dk, password, salt, params);
+        try kdf(allocator, &dk, password, self.salt, self.params);
 
         var encoded_dk: [encodedLen(dk.len)]u8 = undefined;
-        const expected_encoded_dk = str[14 + salt.len + 1 ..][0..43];
-        Self.sliceEncode(32, &encoded_dk, dk[0..]);
+        const expected_encoded_dk = self.derived_key[0..43];
+        Self.sliceEncode(32, &encoded_dk, &dk);
         const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk, expected_encoded_dk.*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
@@ -335,22 +357,18 @@ pub const McfEncoding = struct {
         var salt_bin: [32]u8 = undefined;
         crypto.random.bytes(&salt_bin);
         var salt: [encodedLen(salt_bin.len)]u8 = undefined;
-        Self.sliceEncode(32, &salt, salt_bin[0..]);
+        Self.sliceEncode(32, &salt, &salt_bin);
 
         var dk: [32]u8 = undefined;
         try kdf(allocator, &dk, password, &salt, params);
 
-        var encoded_dk: [encodedLen(dk.len)]u8 = undefined;
-        Self.sliceEncode(32, &encoded_dk, dk[0..]);
-        var str: [pwhash_str_length]u8 = undefined;
-        mem.copy(u8, str[0..3], "$7$");
-        Self.intEncode(str[3..4], params.log_n);
-        Self.intEncode(str[4..9], params.r);
-        Self.intEncode(str[9..14], params.p);
-        mem.copy(u8, str[14..57], &salt);
-        str[57] = '$';
-        Self.sliceEncode(32, str[58..], dk[0..]);
-        return str;
+        var derived_key: [encodedLen(dk.len)]u8 = undefined;
+        Self.sliceEncode(32, &derived_key, &dk);
+        return (Self{
+            .params = params,
+            .salt = salt[0..43],
+            .derived_key = derived_key[0..43],
+        }).toString();
     }
 };
 
@@ -364,6 +382,7 @@ test "kdf" {
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try std.fmt.hexToBytes(&bytes, hex);
+
     std.testing.expectEqualSlices(u8, &bytes, &v);
 }
 
