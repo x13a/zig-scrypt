@@ -41,6 +41,7 @@ pub fn PhcEncoding(comptime T: type) type {
         salt: ?[]u8 = null,
         derived_key: ?[]u8 = null,
 
+        /// Parse phc encoded string
         pub fn fromString(allocator: *mem.Allocator, str: []const u8) !Self {
             var it = mem.split(str, fields_delimiter);
             _ = it.next();
@@ -79,12 +80,14 @@ pub fn PhcEncoding(comptime T: type) type {
             return res;
         }
 
+        /// Check algorithm id
         pub fn check_id(self: *Self, alg_id: []const u8) Error!void {
             if (!mem.eql(u8, self.alg_id, alg_id)) {
                 return error.InvalidAlgorithm;
             }
         }
 
+        /// Verify derived key against phc encoded string
         pub fn verify(
             allocator: *mem.Allocator,
             str: []const u8,
@@ -99,6 +102,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
+        /// Deinitialize salt and derived key
         pub fn deinit(self: *Self) void {
             if (self.salt) |v| {
                 self.allocator.free(v);
@@ -110,6 +114,7 @@ pub fn PhcEncoding(comptime T: type) type {
             }
         }
 
+        /// Create phc encoded string
         pub fn toString(self: *Self) Error![]const u8 {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
@@ -250,6 +255,7 @@ fn b64decode(allocator: *mem.Allocator, s: []const u8) ![]u8 {
     return buf;
 }
 
+/// For public interface usage
 pub const Param = struct {
     const Self = @This();
 
@@ -265,6 +271,7 @@ pub const Param = struct {
     }
 };
 
+/// For public interface usage
 pub const ParamsIterator = struct {
     const Self = @This();
 

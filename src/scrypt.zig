@@ -18,6 +18,7 @@ const phc = @import("phc_encoding.zig");
 
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 const max_int = math.maxInt(u64) >> 1;
+/// Algorithm for PhcEncoding
 pub const phc_alg_id = "scrypt";
 
 const ScryptError = error{
@@ -138,14 +139,17 @@ pub const Params = struct {
         return Self{ .log_n = log_n, .r = r, .p = p };
     }
 
+    /// Create Params with libsodium interactive defaults
     pub fn interactive() Self {
         return Self.fromLimits(524288, 16777216);
     }
 
+    /// Create Params with libsodium sensitive defaults
     pub fn sensitive() Self {
         return Self.fromLimits(33554432, 1073741824);
     }
 
+    /// Create Params from ops and mem limits
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
         const ops = math.max(32768, ops_limit);
         const r: u30 = 8;
@@ -160,6 +164,7 @@ pub const Params = struct {
         }
     }
 
+    /// Public interface for PhcEncoding
     pub fn fromPhcEncoding(it: *phc.ParamsIterator) phc.Error!Self {
         var ln: ?u6 = null;
         var r: ?u30 = null;
@@ -182,6 +187,7 @@ pub const Params = struct {
         };
     }
 
+    /// Public interface for PhcEncoding
     pub fn toPhcEncoding(
         self: Self,
         allocator: *mem.Allocator,
@@ -257,11 +263,12 @@ pub const McfEncoding = struct {
     const map64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
     params: Params,
-    // encoded
+    /// encoded
     salt: []const u8,
-    // encoded
+    /// encoded
     derived_key: []const u8,
 
+    /// Parse mcf encoded scrypt string
     pub fn fromString(str: []const u8) McfEncodingError!Self {
         if (str.len < 58) {
             return error.ParseError;
@@ -276,6 +283,7 @@ pub const McfEncoding = struct {
         };
     }
 
+    /// Create mcf encoded scrypt string
     pub fn toString(self: *Self) [pwhash_str_length]u8 {
         var s: [pwhash_str_length]u8 = undefined;
         mem.copy(u8, s[0..3], "$7$");
@@ -300,6 +308,7 @@ pub const McfEncoding = struct {
         }
     }
 
+    /// Encode slice with crypt base64 format
     pub fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
         var i: usize = 0;
         while (i < src.len / 3) : (i += 1) {
@@ -333,6 +342,7 @@ pub const McfEncoding = struct {
         };
     }
 
+    /// Verify password against mcf encoded string
     pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
         var self = try Self.fromString(str);
 
@@ -351,6 +361,7 @@ pub const McfEncoding = struct {
 
     pub const pwhash_str_length: usize = 101;
 
+    /// Derive key from password and return mcf encoded string
     pub fn create(
         allocator: *mem.Allocator,
         params: Params,
