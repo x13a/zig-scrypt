@@ -17,7 +17,8 @@ const meta = std.meta;
 const phc = @import("phc_encoding.zig");
 
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
-const max_int = math.maxInt(u64) >> 1;
+const max_size = math.maxInt(usize);
+const max_int = max_size >> 1;
 /// Algorithm for PhcEncoding
 pub const phc_alg_id = "scrypt";
 
@@ -114,11 +115,13 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
 
     i = 0;
     while (i < n) : (i += 2) {
-        var j = integerify(x, r) & (n - 1);
+        // 32bit downcast
+        var j = @intCast(usize, integerify(x, r) & (n - 1));
         blockXor(x, v[j * (32 * r) ..], 2 * r);
         blockMix(&tmp, x, y, r);
 
-        j = integerify(y, r) & (n - 1);
+        // 32bit downcast
+        j = @intCast(usize, integerify(y, r) & (n - 1));
         blockXor(y, v[j * (32 * r) ..], 2 * r);
         blockMix(&tmp, y, x, r);
     }
@@ -229,10 +232,15 @@ pub fn kdf(
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
         return Error.InvalidDerivedKeyLen;
     }
-    const n = @as(usize, 1) << params.log_n;
-    if (n <= 1 or n & (n - 1) != 0) {
+    if (params.log_n == 0 or params.r == 0 or params.p == 0) {
         return Error.InvalidParams;
     }
+    // 32bit check
+    const n64 = @as(u64, 1) << params.log_n;
+    if (n64 > max_size) {
+        return Error.InvalidParams;
+    }
+    const n = @intCast(usize, n64);
     if (@as(u64, params.r) * @as(u64, params.p) >= 1 << 30 or
         params.r > max_int / 128 / @as(u64, params.p) or
         params.r > max_int / 256 or
@@ -443,7 +451,6 @@ test "kdf rfc 3" {
 }
 
 test "kdf rfc 4" {
-
     // skip slow test
     if (true) {
         return error.SkipZigTest;

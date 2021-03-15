@@ -119,7 +119,11 @@ pub fn PhcEncoding(comptime T: type) type {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
-                versionLen = fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v });
+                // 32bit safe downcast
+                versionLen = @intCast(
+                    usize,
+                    fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v }),
+                );
                 i += versionLen;
             }
             var params: ?[]const u8 = null;
