@@ -335,7 +335,7 @@ pub const McfEncoding = struct {
     pub const pwhash_str_length: usize = 60;
 
     /// Verify password against mcf encoded string
-    pub fn verify(str: []const u8, password: []const u8) BcryptError!void {
+    pub fn verify(str: [pwhash_str_length]u8, password: []const u8) BcryptError!void {
         var self = try Self.fromString(str);
 
         var salt: [salt_length]u8 = undefined;
@@ -394,7 +394,7 @@ pub fn strHash(password: []const u8, params: Params) [McfEncoding.pwhash_str_len
 
 /// Verify that a previously computed hash is valid for a given password.
 pub fn strVerify(str: [McfEncoding.pwhash_str_length]u8, password: []const u8) BcryptError!void {
-    return McfEncoding.verify(&str, password);
+    return McfEncoding.verify(str, password);
 }
 
 test "bcrypt codec" {
