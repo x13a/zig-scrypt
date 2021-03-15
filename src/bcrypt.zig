@@ -289,7 +289,7 @@ pub const McfEncoding = struct {
     derived_key: [derived_key_str_length]u8,
 
     /// Parse mcf encoded bcrypt string
-    pub fn fromString(str: []const u8) BcryptError!Self {
+    pub fn fromString(str: [pwhash_str_length]u8) BcryptError!Self {
         if (str.len != pwhash_str_length) {
             return error.InvalidEncoding;
         }
