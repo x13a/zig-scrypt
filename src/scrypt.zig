@@ -293,15 +293,15 @@ pub const McfEncoding = struct {
 
     /// Create mcf encoded scrypt string
     pub fn toString(self: *Self) [pwhash_str_length]u8 {
-        var s: [pwhash_str_length]u8 = undefined;
-        mem.copy(u8, s[0..3], "$7$");
-        Self.intEncode(s[3..4], self.params.log_n);
-        Self.intEncode(s[4..9], self.params.r);
-        Self.intEncode(s[9..14], self.params.p);
-        mem.copy(u8, s[14..57], self.salt);
-        s[57] = '$';
-        mem.copy(u8, s[58..], self.derived_key);
-        return s;
+        var buf: [pwhash_str_length]u8 = undefined;
+        mem.copy(u8, buf[0..3], "$7$");
+        Self.intEncode(buf[3..4], self.params.log_n);
+        Self.intEncode(buf[4..9], self.params.r);
+        Self.intEncode(buf[9..14], self.params.p);
+        mem.copy(u8, buf[14..57], self.salt);
+        buf[57] = '$';
+        mem.copy(u8, buf[58..], self.derived_key);
+        return buf;
     }
 
     /// Calculate size for encoding
@@ -359,8 +359,9 @@ pub const McfEncoding = struct {
         try kdf(allocator, &dk, password, self.salt, self.params);
 
         var encoded_dk: [encodedLen(dk.len)]u8 = undefined;
-        const expected_encoded_dk = self.derived_key[0..43];
         Self.sliceEncode(32, &encoded_dk, &dk);
+
+        const expected_encoded_dk = self.derived_key[0..43];
         const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk, expected_encoded_dk.*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
@@ -368,6 +369,7 @@ pub const McfEncoding = struct {
         }
     }
 
+    /// Length (in bytes) of a password hash
     pub const pwhash_str_length: usize = 101;
 
     /// Derive key from password and return mcf encoded string
