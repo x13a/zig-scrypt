@@ -316,12 +316,10 @@ fn CustomB64Codec(comptime map: [64]u8) type {
                 mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
             }
             const leftover = src[i * 4 ..];
-            std.debug.print("leftover: [{s}] len={d}\n", .{ leftover, leftover.len });
             var v: u24 = 0;
             for (leftover) |_, j| {
                 v |= @as(u24, try intDecode(u6, leftover[j..][0..1])) << @intCast(u5, j * 6);
             }
-            std.debug.print("{d}\n", .{v});
             for (dst[i * 3 ..]) |*x, j| {
                 x.* = @truncate(u8, v >> @intCast(u5, j * 8));
             }
