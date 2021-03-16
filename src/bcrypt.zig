@@ -13,13 +13,15 @@ const mem = std.mem;
 
 const phc = @import("phc_encoding.zig");
 
+/// bcrypt salt length
 pub const salt_length: usize = 16;
+/// bcrypt derived key length
 pub const derived_key_length: usize = 24;
-
 /// deprecated, use: CryptEncoding.pwhash_str_length
 pub const hash_length: usize = 60;
 /// Algorithm for PhcEncoding
 pub const phc_alg_id = "bcrypt";
+
 const phc_encoding = phc.PhcEncoding(Params);
 
 pub const BcryptError = error{

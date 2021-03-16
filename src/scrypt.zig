@@ -16,11 +16,12 @@ const meta = std.meta;
 
 const phc = @import("phc_encoding.zig");
 
+/// Algorithm for PhcEncoding
+pub const phc_alg_id = "scrypt";
+
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
-/// Algorithm for PhcEncoding
-pub const phc_alg_id = "scrypt";
 const phc_encoding = phc.PhcEncoding(Params);
 
 const ScryptError = error{
