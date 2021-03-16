@@ -51,7 +51,8 @@ pub fn PhcEncoding(comptime T: type) type {
             if (alg_id.len == 0 or alg_id.len > 32) {
                 return Error.ParseError;
             }
-            var res = Self{ .allocator = allocator, .alg_id = alg_id };
+            var res = Self{ .allocator = allocator, .alg_id = try allocator.dupe(u8, alg_id) };
+            errdefer allocator.free(res.alg_id);
             var s = it.next() orelse return res;
             if (mem.startsWith(u8, s, version_prefix) and
                 mem.indexOf(u8, s, params_delimiter) == null)
@@ -64,21 +65,16 @@ pub fn PhcEncoding(comptime T: type) type {
                 res.params = try T.fromPhcEncoding(&params_it);
                 s = it.next() orelse return res;
             }
-            const salt = try b64decode(allocator, s);
-            errdefer allocator.free(salt);
-            const derived_key = try b64decode(
+            res.salt = try b64decode(allocator, s);
+            errdefer allocator.free(res.salt.?);
+            res.derived_key = try b64decode(
                 allocator,
-                it.next() orelse {
-                    res.salt = salt;
-                    return res;
-                },
+                it.next() orelse return res,
             );
-            errdefer allocator.free(derived_key);
+            errdefer allocator.free(res.derived_key.?);
             if (it.next() != null) {
                 return Error.ParseError;
             }
-            res.salt = salt;
-            res.derived_key = derived_key;
             return res;
         }
 
@@ -106,6 +102,7 @@ pub fn PhcEncoding(comptime T: type) type {
 
         /// Deinitialize salt and derived key
         pub fn deinit(self: *Self) void {
+            self.allocator.free(self.alg_id);
             if (self.salt) |v| {
                 self.allocator.free(v);
                 self.salt = null;
