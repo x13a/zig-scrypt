@@ -330,40 +330,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
 // https://en.wikipedia.org/wiki/Crypt_(C)
 // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
 pub const CryptEncoding = struct {
-    const Self = @This();
     pub const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
-
-    params: Params,
-    salt: []const u8, ** <- this is a slice into the `fromString()` parameter, which may be a dangling pointer after the function returns **
-    encoded_dk: [43]u8,
-
-    /// Parse crypt encoded scrypt string
-    pub fn fromString(str: []const u8) CryptEncodingError!Self {
-        if (str.len < 58) {
-            return error.ParseError;
-        }
-        const params = try Self.parseParams(str[0..14]);
-        var salt = str[14..];
-        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
-        return Self{
-            .params = params,
-            .salt = salt,
-            .encoded_dk = str[14 + salt.len + 1 ..][0..43].*,
-        };
-    }
-
-    /// Create crypt encoded scrypt string
-    pub fn toString(self: *Self) [pwhash_str_length]u8 {
-        var buf: [pwhash_str_length]u8 = undefined;
-        mem.copy(u8, buf[0..3], "$7$");
-        Codec.intEncode(buf[3..4], self.params.log_n);
-        Codec.intEncode(buf[4..9], self.params.r);
-        Codec.intEncode(buf[9..14], self.params.p);
-        mem.copy(u8, buf[14..57], self.salt);
-        buf[57] = '$';
-        mem.copy(u8, buf[58..], self.encoded_dk[0..]);
-        return buf;
-    }
 
     fn parseParams(encoded: *const [14]u8) CryptEncodingError!Params {
         if (!mem.eql(u8, "$7$", encoded[0..3])) {
@@ -378,15 +345,20 @@ pub const CryptEncoding = struct {
 
     /// Verify password against crypt encoded string
     pub fn verify(allocator: *mem.Allocator, str: []const u8, password: []const u8) !void {
-        var self = try Self.fromString(str);
+        if (str.len < 58) {
+            return error.ParseError;
+        }
+        const params = try parseParams(str[0..14]);
+        var salt = str[14..];
+        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
+        const expected_encoded_dk = str[14 + salt.len + 1 ..][0..43];
 
         var dk: [32]u8 = undefined;
-        try kdf(allocator, &dk, password, self.salt, self.params);
+        try kdf(allocator, &dk, password, salt, params);
 
         var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
         Codec.sliceEncode(32, &encoded_dk, &dk);
 
-        const expected_encoded_dk = self.encoded_dk;
         const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
@@ -413,11 +385,16 @@ pub const CryptEncoding = struct {
 
         var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
         Codec.sliceEncode(32, &encoded_dk, &dk);
-        return (Self{
-            .params = params,
-            .salt = salt[0..],
-            .encoded_dk = encoded_dk,
-        }).toString();
+
+        var buf: [pwhash_str_length]u8 = undefined;
+        mem.copy(u8, buf[0..3], "$7$");
+        Codec.intEncode(buf[3..4], params.log_n);
+        Codec.intEncode(buf[4..9], params.r);
+        Codec.intEncode(buf[9..14], params.p);
+        mem.copy(u8, buf[14..57], salt[0..]);
+        buf[57] = '$';
+        mem.copy(u8, buf[58..], encoded_dk[0..]);
+        return buf;
     }
 };
 
