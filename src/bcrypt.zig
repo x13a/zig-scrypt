@@ -6,10 +6,10 @@
 
 const std = @import("std");
 const crypto = std.crypto;
+const debug = std.debug;
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
-const debug = std.debug;
 
 const phc = @import("phc_encoding.zig");
 
