@@ -140,19 +140,11 @@ pub const Params = struct {
     r: u30,
     p: u30,
 
-    pub fn new(log_n: u6, r: u30, p: u30) Self {
-        return Self{ .log_n = log_n, .r = r, .p = p };
-    }
+    /// Baseline parameters for interactive logins
+    pub const interactive = Self.fromLimits(524288, 16777216);
 
-    /// Create Params with libsodium interactive defaults
-    pub fn interactive() Self {
-        return Self.fromLimits(524288, 16777216);
-    }
-
-    /// Create Params with libsodium sensitive defaults
-    pub fn sensitive() Self {
-        return Self.fromLimits(33554432, 1073741824);
-    }
+    /// Baseline parameters for offline usage
+    pub const sensitive = Self.fromLimits(33554432, 1073741824);
 
     /// Create Params from ops and mem limits
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
@@ -297,7 +289,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
         }
 
         /// Encode slice with crypt base64 format
-        pub fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
+        fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
             var i: usize = 0;
             while (i < src.len / 3) : (i += 1) {
                 intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
@@ -330,7 +322,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
 // https://en.wikipedia.org/wiki/Crypt_(C)
 // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
 pub const CryptEncoding = struct {
-    pub const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
+    const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
 
     fn parseParams(encoded: *const [14]u8) CryptEncodingError!Params {
         if (!mem.eql(u8, "$7$", encoded[0..3])) {
@@ -421,7 +413,7 @@ test "kdf" {
     const salt = "saltsalt";
 
     var v: [32]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(15, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 15, .r = 8, .p = 1 });
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -435,7 +427,7 @@ test "kdf rfc 1" {
     const salt = "";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(4, 1, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 4, .r = 1, .p = 1 });
 
     const hex = "77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -449,7 +441,7 @@ test "kdf rfc 2" {
     const salt = "NaCl";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(10, 8, 16));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 10, .r = 8, .p = 16 });
 
     const hex = "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -463,7 +455,7 @@ test "kdf rfc 3" {
     const salt = "SodiumChloride";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(14, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 14, .r = 8, .p = 1 });
 
     const hex = "7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -482,7 +474,7 @@ test "kdf rfc 4" {
     const salt = "SodiumChloride";
 
     var v: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &v, password, salt, Params.new(20, 8, 1));
+    try kdf(std.testing.allocator, &v, password, salt, Params{ .log_n = 20, .r = 8, .p = 1 });
 
     const hex = "2101cb9b6a511aaeaddbbe09cf70f881ec568d574a2ffd4dabe5ee9820adaa478e56fd8f4ba5d09ffa1c6d927c40f4c337304049e8a952fbcbf45c6fa77a41a4";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -496,7 +488,7 @@ test "password hashing (crypt format)" {
     const password = "Y0!?iQa9M%5ekffW(`";
     try CryptEncoding.verify(std.testing.allocator, str, password);
 
-    const params = Params.interactive();
+    const params = Params.interactive;
     const str2 = try CryptEncoding.create(std.testing.allocator, password, params);
     try CryptEncoding.verify(std.testing.allocator, &str2, password);
 }
@@ -505,7 +497,7 @@ test "strHash && strVerify" {
     const alloc = std.testing.allocator;
     const password = "testpass";
 
-    const s = try strHash(alloc, password, Params.interactive());
+    const s = try strHash(alloc, password, Params.interactive);
     defer alloc.free(s);
     try strVerify(alloc, s, password);
 }
