@@ -336,10 +336,8 @@ pub const CryptEncoding = struct {
     pub const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
 
     params: Params,
-    /// encoded
     salt: []const u8,
-    /// encoded
-    derived_key: []const u8,
+    encoded_dk: [43]u8,
 
     /// Parse crypt encoded scrypt string
     pub fn fromString(str: []const u8) CryptEncodingError!Self {
@@ -352,7 +350,7 @@ pub const CryptEncoding = struct {
         return Self{
             .params = params,
             .salt = salt,
-            .derived_key = str[14 + salt.len + 1 ..][0..43],
+            .encoded_dk = str[14 + salt.len + 1 ..][0..43].*,
         };
     }
 
@@ -365,7 +363,7 @@ pub const CryptEncoding = struct {
         Codec.intEncode(buf[9..14], self.params.p);
         mem.copy(u8, buf[14..57], self.salt);
         buf[57] = '$';
-        mem.copy(u8, buf[58..], self.derived_key);
+        mem.copy(u8, buf[58..], self.encoded_dk[0..]);
         return buf;
     }
 
@@ -390,8 +388,8 @@ pub const CryptEncoding = struct {
         var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
         Codec.sliceEncode(32, &encoded_dk, &dk);
 
-        const expected_encoded_dk = self.derived_key[0..43];
-        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk, expected_encoded_dk.*);
+        const expected_encoded_dk = self.encoded_dk;
+        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
             return CryptEncodingError.VerificationError;
@@ -415,12 +413,12 @@ pub const CryptEncoding = struct {
         var dk: [32]u8 = undefined;
         try kdf(allocator, &dk, password, &salt, params);
 
-        var derived_key: [Codec.encodedLen(dk.len)]u8 = undefined;
-        Codec.sliceEncode(32, &derived_key, &dk);
+        var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
+        Codec.sliceEncode(32, &encoded_dk, &dk);
         return (Self{
             .params = params,
-            .salt = salt[0..43],
-            .derived_key = derived_key[0..43],
+            .salt = salt[0..],
+            .encoded_dk = encoded_dk,
         }).toString();
     }
 };
