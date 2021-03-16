@@ -266,51 +266,74 @@ pub fn kdf(
     try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
 
-const Codec = struct {
-    const map64 = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+fn CustomB64Codec(comptime map: [64]u8) type {
+    return struct {
+        const map64 = map;
 
-    /// Calculate size for encoding
-    pub fn encodedLen(len: usize) usize {
-        return (len * 4 + 2) / 3;
-    }
+        /// Calculate size for encoding
+        pub fn encodedLen(len: usize) usize {
+            return (len * 4 + 2) / 3;
+        }
 
-    fn intEncode(dst: []u8, src: anytype) void {
-        var n = src;
-        for (dst) |*x, i| {
-            x.* = map64[@truncate(u6, n)];
-            n = math.shr(@TypeOf(src), n, 6);
+        fn decodedLen(len: usize) usize {
+            return len / 4 * 3 + (len % 4) * 3 / 4;
         }
-    }
 
-    /// Encode slice with crypt base64 format
-    pub fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
-        var i: usize = 0;
-        while (i < src.len / 3) : (i += 1) {
-            intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
+        fn intEncode(dst: []u8, src: anytype) void {
+            var n = src;
+            for (dst) |*x, i| {
+                x.* = map64[@truncate(u6, n)];
+                n = math.shr(@TypeOf(src), n, 6);
+            }
         }
-        const leftover = src[i * 3 ..];
-        var v: u24 = 0;
-        for (leftover) |x, j| {
-            v |= @as(u24, x) << @intCast(u5, j * 8);
-        }
-        intEncode(dst[i * 4 ..], v);
-    }
 
-    fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) CryptEncodingError!T {
-        var v: T = 0;
-        for (src) |x, i| {
-            const vi = mem.indexOfScalar(u8, map64, x) orelse return error.ParseError;
-            v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
+        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) CryptEncodingError!T {
+            var v: T = 0;
+            for (src) |x, i| {
+                const vi = mem.indexOfScalar(u8, &map64, x) orelse return error.ParseError;
+                v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
+            }
+            return v;
         }
-        return v;
-    }
-};
+
+        /// Encode slice with crypt base64 format
+        pub fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
+            var i: usize = 0;
+            while (i < src.len / 3) : (i += 1) {
+                intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
+            }
+            const leftover = src[i * 3 ..];
+            var v: u24 = 0;
+            for (leftover) |x, j| {
+                v |= @as(u24, x) << @intCast(u5, j * 8);
+            }
+            intEncode(dst[i * 4 ..], v);
+        }
+
+        fn sliceDecode(comptime len: usize, dst: *[decodedLen(len)]u8, src: *const [len]u8) !void {
+            var i: usize = 0;
+            while (i < src.len / 4) : (i += 1) {
+                mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
+            }
+            const leftover = src[i * 4 ..];
+            std.debug.print("leftover: [{s}] len={d}\n", .{ leftover, leftover.len });
+            var v: u24 = 0;
+            for (leftover) |_, j| {
+                v |= @as(u24, try intDecode(u6, leftover[j..][0..1])) << @intCast(u5, j * 6);
+            }
+            std.debug.print("{d}\n", .{v});
+            for (dst[i * 3 ..]) |*x, j| {
+                x.* = @truncate(u8, v >> @intCast(u5, j * 8));
+            }
+        }
+    };
+}
 
 // https://en.wikipedia.org/wiki/Crypt_(C)
 // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
 pub const CryptEncoding = struct {
     const Self = @This();
-    pub const codec = Codec;
+    pub const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
 
     params: Params,
     /// encoded
@@ -337,9 +360,9 @@ pub const CryptEncoding = struct {
     pub fn toString(self: *Self) [pwhash_str_length]u8 {
         var buf: [pwhash_str_length]u8 = undefined;
         mem.copy(u8, buf[0..3], "$7$");
-        codec.intEncode(buf[3..4], self.params.log_n);
-        codec.intEncode(buf[4..9], self.params.r);
-        codec.intEncode(buf[9..14], self.params.p);
+        Codec.intEncode(buf[3..4], self.params.log_n);
+        Codec.intEncode(buf[4..9], self.params.r);
+        Codec.intEncode(buf[9..14], self.params.p);
         mem.copy(u8, buf[14..57], self.salt);
         buf[57] = '$';
         mem.copy(u8, buf[58..], self.derived_key);
@@ -351,9 +374,9 @@ pub const CryptEncoding = struct {
             return error.InvalidAlgorithm;
         }
         return Params{
-            .log_n = try codec.intDecode(u6, encoded[3..4]),
-            .r = try codec.intDecode(u30, encoded[4..9]),
-            .p = try codec.intDecode(u30, encoded[9..14]),
+            .log_n = try Codec.intDecode(u6, encoded[3..4]),
+            .r = try Codec.intDecode(u30, encoded[4..9]),
+            .p = try Codec.intDecode(u30, encoded[9..14]),
         };
     }
 
@@ -364,8 +387,8 @@ pub const CryptEncoding = struct {
         var dk: [32]u8 = undefined;
         try kdf(allocator, &dk, password, self.salt, self.params);
 
-        var encoded_dk: [codec.encodedLen(dk.len)]u8 = undefined;
-        codec.sliceEncode(32, &encoded_dk, &dk);
+        var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
+        Codec.sliceEncode(32, &encoded_dk, &dk);
 
         const expected_encoded_dk = self.derived_key[0..43];
         const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk, expected_encoded_dk.*);
@@ -386,14 +409,14 @@ pub const CryptEncoding = struct {
     ) ![pwhash_str_length]u8 {
         var salt_bin: [32]u8 = undefined;
         crypto.random.bytes(&salt_bin);
-        var salt: [codec.encodedLen(salt_bin.len)]u8 = undefined;
-        codec.sliceEncode(32, &salt, &salt_bin);
+        var salt: [Codec.encodedLen(salt_bin.len)]u8 = undefined;
+        Codec.sliceEncode(32, &salt, &salt_bin);
 
         var dk: [32]u8 = undefined;
         try kdf(allocator, &dk, password, &salt, params);
 
-        var derived_key: [codec.encodedLen(dk.len)]u8 = undefined;
-        codec.sliceEncode(32, &derived_key, &dk);
+        var derived_key: [Codec.encodedLen(dk.len)]u8 = undefined;
+        Codec.sliceEncode(32, &derived_key, &dk);
         return (Self{
             .params = params,
             .salt = salt[0..43],
