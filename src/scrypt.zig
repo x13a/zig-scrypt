@@ -336,7 +336,7 @@ pub const CryptEncoding = struct {
     pub const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
 
     params: Params,
-    salt: []const u8,
+    salt: []const u8, ** <- this is a slice into the `fromString()` parameter, which may be a dangling pointer after the function returns **
     encoded_dk: [43]u8,
 
     /// Parse crypt encoded scrypt string
