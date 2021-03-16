@@ -42,6 +42,8 @@ pub fn PhcEncoding(comptime T: type) type {
         derived_key: ?[]u8 = null,
 
         /// Parse phc encoded string
+        ///
+        /// You have to call `deinit` after use.
         pub fn fromString(allocator: *mem.Allocator, str: []const u8) !Self {
             var it = mem.split(str, fields_delimiter);
             _ = it.next();
@@ -115,7 +117,9 @@ pub fn PhcEncoding(comptime T: type) type {
         }
 
         /// Create phc encoded string
-        pub fn toString(self: *Self) Error![]const u8 {
+        ///
+        /// You have to free result after use.
+        pub fn toString(self: *Self) Error![]u8 {
             var i: usize = self.alg_id.len + fields_delimiter.len;
             var versionLen: usize = 0;
             if (self.version) |v| {
