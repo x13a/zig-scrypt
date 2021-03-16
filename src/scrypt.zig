@@ -343,7 +343,11 @@ pub const CryptEncoding = struct {
         const params = try parseParams(str[0..14]);
         var salt = str[14..];
         salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return error.ParseError];
-        const expected_encoded_dk = str[14 + salt.len + 1 ..][0..43];
+        const str_dk = str[14 + salt.len + 1 ..];
+        if (str_dk.len < 43) {
+            return error.ParseError;
+        }
+        const expected_encoded_dk = str_dk[0..43];
 
         var dk: [32]u8 = undefined;
         try kdf(allocator, &dk, password, salt, params);
