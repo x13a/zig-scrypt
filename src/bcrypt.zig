@@ -153,7 +153,7 @@ const State = struct {
 const Codec = struct {
     const alphabet = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-    pub fn encode(b64: []u8, bin: []const u8) void {
+    fn encode(b64: []u8, bin: []const u8) void {
         var i: usize = 0;
         var j: usize = 0;
         while (i < bin.len) {
@@ -188,7 +188,7 @@ const Codec = struct {
         debug.assert(j == b64.len);
     }
 
-    pub fn decode(bin: []u8, b64: []const u8) BcryptError!void {
+    fn decode(bin: []u8, b64: []const u8) BcryptError!void {
         var i: usize = 0;
         var j: usize = 0;
         while (j < bin.len) {
@@ -217,10 +217,6 @@ pub const Params = struct {
     const Self = @This();
 
     log_rounds: u6,
-
-    pub fn new(log_rounds: u6) Self {
-        return Self{ .log_rounds = log_rounds };
-    }
 
     /// Public interface for PhcEncoding
     pub fn fromPhcEncoding(it: *phc.ParamsIterator) phc.Error!Self {
@@ -282,47 +278,8 @@ pub fn kdf(
 // https://en.wikipedia.org/wiki/Crypt_(C)
 pub const CryptEncoding = struct {
     const Self = @This();
-    pub const salt_str_length: usize = 22;
-    pub const derived_key_str_length: usize = 31;
-    pub const codec = Codec;
-
-    params: Params,
-    /// encoded
-    salt: [salt_str_length]u8,
-    /// encoded
-    derived_key: [derived_key_str_length]u8,
-
-    /// Parse crypt encoded bcrypt string
-    pub fn fromString(str: []const u8) BcryptError!Self {
-        if (str.len != pwhash_str_length) {
-            return error.InvalidEncoding;
-        }
-        const params = try Self.parseParams(str[0..7]);
-        const salt = str[7..][0..salt_str_length];
-        const derived_key = str[7 + salt_str_length ..][0..derived_key_str_length];
-        return Self{
-            .params = params,
-            .salt = salt.*,
-            .derived_key = derived_key.*,
-        };
-    }
-
-    /// Create crypt encoded bcrypt string
-    pub fn toString(self: *Self) [pwhash_str_length]u8 {
-        var buf: [pwhash_str_length]u8 = undefined;
-        const s = fmt.bufPrint(
-            &buf,
-            "$2b${d}{d}${s}{s}",
-            .{
-                self.params.log_rounds / 10,
-                self.params.log_rounds % 10,
-                self.salt,
-                self.derived_key,
-            },
-        ) catch unreachable;
-        debug.assert(s.len == buf.len);
-        return buf;
-    }
+    const salt_str_length: usize = 22;
+    const derived_key_str_length: usize = 31;
 
     fn parseParams(encoded: *const [7]u8) BcryptError!Params {
         if (!mem.eql(u8, "$2", encoded[0..2])) {
@@ -332,7 +289,7 @@ pub const CryptEncoding = struct {
             return error.InvalidEncoding;
         }
         const lr = fmt.parseInt(u6, encoded[4..][0..2], 10) catch return error.InvalidEncoding;
-        return Params.new(lr);
+        return Params{ .log_rounds = lr };
     }
 
     /// Length (in bytes) of a password hash
@@ -340,21 +297,26 @@ pub const CryptEncoding = struct {
 
     /// Verify password against crypt encoded string
     pub fn verify(str: []const u8, password: []const u8) BcryptError!void {
-        var self = try Self.fromString(str);
+        if (str.len != pwhash_str_length) {
+            return error.InvalidEncoding;
+        }
+        const params = try Self.parseParams(str[0..7]);
+        const salt_str = str[7..][0..salt_str_length];
+        const derived_key_str = str[7 + salt_str_length ..][0..derived_key_str_length];
 
         var salt: [salt_length]u8 = undefined;
-        try codec.decode(&salt, &self.salt);
+        try Codec.decode(&salt, salt_str);
 
         var dk: [derived_key_length]u8 = undefined;
-        kdf(&dk, password, salt, self.params);
+        kdf(&dk, password, salt, params);
 
         var derived_key: [derived_key_str_length]u8 = undefined;
-        codec.encode(&derived_key, dk[0 .. dk.len - 1]);
+        Codec.encode(&derived_key, dk[0 .. dk.len - 1]);
 
         const passed = crypto.utils.timingSafeEql(
             [derived_key_str_length]u8,
             derived_key,
-            self.derived_key,
+            derived_key_str.*,
         );
         crypto.utils.secureZero(u8, &derived_key);
         if (!passed) {
@@ -371,16 +333,24 @@ pub const CryptEncoding = struct {
         kdf(&dk, password, salt_bin, params);
 
         var salt: [salt_str_length]u8 = undefined;
-        codec.encode(&salt, &salt_bin);
+        Codec.encode(&salt, &salt_bin);
 
         var derived_key: [derived_key_str_length]u8 = undefined;
-        codec.encode(&derived_key, dk[0 .. dk.len - 1]);
+        Codec.encode(&derived_key, dk[0 .. dk.len - 1]);
 
-        return (Self{
-            .params = params,
-            .salt = salt,
-            .derived_key = derived_key,
-        }).toString();
+        var buf: [pwhash_str_length]u8 = undefined;
+        const s = fmt.bufPrint(
+            &buf,
+            "$2b${d}{d}${s}{s}",
+            .{
+                params.log_rounds / 10,
+                params.log_rounds % 10,
+                salt,
+                derived_key,
+            },
+        ) catch unreachable;
+        debug.assert(s.len == buf.len);
+        return buf;
     }
 };
 
@@ -420,7 +390,7 @@ test "Codec" {
 
 test "strHash && strVerify" {
     const alloc = std.testing.allocator;
-    const params = Params.new(5);
+    const params = Params{ .log_rounds = 5 };
 
     const s = try strHash(alloc, "password", params);
     defer alloc.free(s);
