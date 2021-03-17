@@ -262,8 +262,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
     return struct {
         const map64 = map;
 
-        /// Calculate size for encoding
-        pub fn encodedLen(len: usize) usize {
+        fn encodedLen(len: usize) usize {
             return (len * 4 + 2) / 3;
         }
 
@@ -288,7 +287,6 @@ fn CustomB64Codec(comptime map: [64]u8) type {
             return v;
         }
 
-        /// Encode slice with crypt base64 format
         fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
             var i: usize = 0;
             while (i < src.len / 3) : (i += 1) {
@@ -504,4 +502,12 @@ test "strHash && strVerify" {
     const s = try strHash(alloc, password, Params.interactive);
     defer alloc.free(s);
     try strVerify(alloc, s, password);
+}
+
+test "unix-scrypt" {
+    // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
+    const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
+    const password = "pleaseletmein";
+
+    try strVerify(std.testing.allocator, str, password);
 }
