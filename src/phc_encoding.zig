@@ -79,7 +79,7 @@ pub fn PhcEncoding(comptime T: type) type {
         }
 
         /// Check algorithm id
-        pub fn check_id(self: *Self, alg_id: []const u8) Error!void {
+        pub fn checkId(self: *Self, alg_id: []const u8) Error!void {
             if (!mem.eql(u8, self.alg_id, alg_id)) {
                 return error.InvalidAlgorithm;
             }
@@ -332,7 +332,7 @@ test "verify" {
     try phc.verify(std.testing.allocator, s, "testpass");
 }
 
-test "check_id" {
+test "checkId" {
     const scrypt = @import("scrypt.zig");
 
     const phc = PhcEncoding(scrypt.Params);
@@ -341,7 +341,7 @@ test "check_id" {
     var v = try phc.fromString(std.testing.allocator, s);
     defer v.deinit();
 
-    try v.check_id("scrypt");
+    try v.checkId("scrypt");
 }
 
 test "conv only id" {
