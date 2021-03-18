@@ -12,17 +12,26 @@ const math = std.math;
 const mem = std.mem;
 
 const phc = @import("phc_encoding.zig");
+const pwhash = @import("pwhash.zig");
 
 /// bcrypt salt length
 pub const salt_length: usize = 16;
 /// bcrypt derived key length
 pub const derived_key_length: usize = 24;
-/// deprecated, use: CryptEncoding.pwhash_str_length
+/// deprecated, use: CryptHasher.pwhash_str_length
 pub const hash_length: usize = 60;
 /// Algorithm for PhcEncoding
 pub const phc_alg_id = "bcrypt";
 
-const phc_encoding = phc.PhcEncoding(Params);
+const PhcParser = phc.Parser(Params);
+const PhcHasher = phc.Hasher(
+    PhcParser,
+    Params,
+    phc_kdf,
+    phc_alg_id,
+    salt_length,
+    derived_key_length,
+);
 
 pub const BcryptError = error{
     /// The hashed password cannot be decoded.
@@ -242,6 +251,16 @@ pub const Params = struct {
     }
 };
 
+fn phc_kdf(
+    allocator: *mem.Allocator,
+    derived_key: []u8,
+    password: []const u8,
+    salt: []const u8,
+    params: Params,
+) !void {
+    kdf(derived_key[0..derived_key_length], password, salt[0..salt_length].*, params);
+}
+
 /// Apply BCRYPT to generate a key from a password.
 pub fn kdf(
     derived_key: *[derived_key_length]u8,
@@ -276,13 +295,14 @@ pub fn kdf(
 }
 
 // https://en.wikipedia.org/wiki/Crypt_(C)
-pub const CryptEncoding = struct {
+pub const CryptHasher = struct {
     const Self = @This();
     const salt_str_length: usize = 22;
     const derived_key_str_length: usize = 31;
+    const prefix = "$2";
 
     fn parseParams(encoded: *const [7]u8) BcryptError!Params {
-        if (!mem.eql(u8, "$2", encoded[0..2])) {
+        if (!mem.eql(u8, prefix, encoded[0..2])) {
             return error.InvalidEncoding;
         }
         if (encoded[3] != '$' or encoded[6] != '$') {
@@ -341,8 +361,9 @@ pub const CryptEncoding = struct {
         var buf: [pwhash_str_length]u8 = undefined;
         const s = fmt.bufPrint(
             &buf,
-            "$2b${d}{d}${s}{s}",
+            "{s}b${d}{d}${s}{s}",
             .{
+                prefix,
                 params.log_rounds / 10,
                 params.log_rounds % 10,
                 salt,
@@ -352,6 +373,11 @@ pub const CryptEncoding = struct {
         debug.assert(s.len == buf.len);
         return buf;
     }
+};
+
+pub const Options = struct {
+    kdf_params: Params,
+    encoding: pwhash.Encoding,
 };
 
 /// Compute a hash of a password using 2^log_rounds rounds of the bcrypt key stretching function.
@@ -364,9 +390,14 @@ pub const CryptEncoding = struct {
 /// and then use the resulting hash as the password parameter for bcrypt.
 ///
 /// You have to free result after use.
-pub fn strHash(allocator: *mem.Allocator, password: []const u8, params: Params) ![]u8 {
-    const s = CryptEncoding.create(password, params);
-    return allocator.dupe(u8, &s);
+pub fn strHash(allocator: *mem.Allocator, password: []const u8, options: Options) ![]u8 {
+    switch (options.encoding) {
+        .phc => return PhcHasher.create(allocator, password, options.kdf_params),
+        .crypt => {
+            const s = CryptHasher.create(password, options.kdf_params);
+            return allocator.dupe(u8, &s);
+        },
+    }
 }
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -374,14 +405,18 @@ pub fn strVerify(
     allocator: *mem.Allocator,
     str: []const u8,
     password: []const u8,
-) BcryptError!void {
-    return CryptEncoding.verify(str, password);
+) !void {
+    if (mem.startsWith(u8, str, CryptHasher.prefix) and str.len >= 4 and str[3] == '$') {
+        return CryptHasher.verify(str, password);
+    } else {
+        return PhcHasher.verify(allocator, str, password);
+    }
 }
 
 test "Codec" {
     var salt: [salt_length]u8 = undefined;
     crypto.random.bytes(&salt);
-    var salt_str: [CryptEncoding.salt_str_length]u8 = undefined;
+    var salt_str: [CryptHasher.salt_str_length]u8 = undefined;
     Codec.encode(salt_str[0..], salt[0..]);
     var salt2: [salt_length]u8 = undefined;
     try Codec.decode(salt2[0..], salt_str[0..]);
@@ -392,13 +427,27 @@ test "strHash && strVerify" {
     const alloc = std.testing.allocator;
     const params = Params{ .log_rounds = 5 };
 
-    const s = try strHash(alloc, "password", params);
+    const s = try strHash(
+        alloc,
+        "password",
+        Options{ .kdf_params = params, .encoding = .crypt },
+    );
     defer alloc.free(s);
 
     try strVerify(alloc, s, "password");
     std.testing.expectError(error.InvalidPassword, strVerify(alloc, s, "invalid password"));
 
-    const long_s = try strHash(alloc, "password" ** 100, params);
+    const s1 = try strHash(alloc, "password", Options{ .kdf_params = params, .encoding = .phc });
+    defer alloc.free(s1);
+
+    try strVerify(alloc, s1, "password");
+    std.testing.expectError(phc.Error.VerificationError, strVerify(alloc, s1, "invalid password"));
+
+    const long_s = try strHash(
+        alloc,
+        "password" ** 100,
+        Options{ .kdf_params = params, .encoding = .crypt },
+    );
     defer alloc.free(long_s);
 
     try strVerify(alloc, long_s, "password" ** 100);

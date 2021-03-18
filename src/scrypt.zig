@@ -15,6 +15,7 @@ const mem = std.mem;
 const meta = std.meta;
 
 const phc = @import("phc_encoding.zig");
+const pwhash = @import("pwhash.zig");
 
 /// Algorithm for PhcEncoding
 pub const phc_alg_id = "scrypt";
@@ -22,7 +23,8 @@ pub const phc_alg_id = "scrypt";
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
-const phc_encoding = phc.PhcEncoding(Params);
+const PhcParser = phc.Parser(Params);
+const PhcHasher = phc.Hasher(PhcParser, Params, kdf, phc_alg_id, 32, 32);
 
 const ScryptError = error{
     InvalidParams,
@@ -31,7 +33,7 @@ const ScryptError = error{
 
 pub const Error = ScryptError || mem.Allocator.Error;
 
-pub const CryptEncodingError = error{
+pub const CryptHasherError = error{
     ParseError,
     InvalidAlgorithm,
     VerificationError,
@@ -278,7 +280,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
             }
         }
 
-        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) CryptEncodingError!T {
+        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) CryptHasherError!T {
             var v: T = 0;
             for (src) |x, i| {
                 const vi = mem.indexOfScalar(u8, &map64, x) orelse return error.ParseError;
@@ -319,11 +321,12 @@ fn CustomB64Codec(comptime map: [64]u8) type {
 
 // https://en.wikipedia.org/wiki/Crypt_(C)
 // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
-pub const CryptEncoding = struct {
+pub const CryptHasher = struct {
     const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
+    const prefix = "$7$";
 
-    fn parseParams(encoded: *const [14]u8) CryptEncodingError!Params {
-        if (!mem.eql(u8, "$7$", encoded[0..3])) {
+    fn parseParams(encoded: *const [14]u8) CryptHasherError!Params {
+        if (!mem.eql(u8, prefix, encoded[0..3])) {
             return error.InvalidAlgorithm;
         }
         return Params{
@@ -356,7 +359,7 @@ pub const CryptEncoding = struct {
         const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
-            return CryptEncodingError.VerificationError;
+            return CryptHasherError.VerificationError;
         }
     }
 
@@ -381,7 +384,7 @@ pub const CryptEncoding = struct {
         Codec.sliceEncode(32, &encoded_dk, &dk);
 
         var buf: [pwhash_str_length]u8 = undefined;
-        mem.copy(u8, buf[0..3], "$7$");
+        mem.copy(u8, buf[0..3], prefix);
         Codec.intEncode(buf[3..4], params.log_n);
         Codec.intEncode(buf[4..9], params.r);
         Codec.intEncode(buf[9..14], params.p);
@@ -392,13 +395,23 @@ pub const CryptEncoding = struct {
     }
 };
 
+pub const Options = struct {
+    kdf_params: Params,
+    encoding: pwhash.Encoding,
+};
+
 /// Compute a hash of a password using the scrypt key derivation function.
 /// The function returns a string that includes all the parameters required for verification.
 ///
 /// You have to free result after use.
-pub fn strHash(allocator: *mem.Allocator, password: []const u8, params: Params) ![]u8 {
-    const s = try CryptEncoding.create(allocator, password, params);
-    return allocator.dupe(u8, &s);
+pub fn strHash(allocator: *mem.Allocator, password: []const u8, options: Options) ![]u8 {
+    switch (options.encoding) {
+        .phc => return PhcHasher.create(allocator, password, options.kdf_params),
+        .crypt => {
+            const s = try CryptHasher.create(allocator, password, options.kdf_params);
+            return allocator.dupe(u8, &s);
+        },
+    }
 }
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -407,7 +420,11 @@ pub fn strVerify(
     str: []const u8,
     password: []const u8,
 ) !void {
-    return CryptEncoding.verify(allocator, str, password);
+    if (mem.startsWith(u8, str, CryptHasher.prefix)) {
+        return CryptHasher.verify(allocator, str, password);
+    } else {
+        return PhcHasher.verify(allocator, str, password);
+    }
 }
 
 test "kdf" {
@@ -488,20 +505,32 @@ test "kdf rfc 4" {
 test "password hashing (crypt format)" {
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
-    try CryptEncoding.verify(std.testing.allocator, str, password);
+    try CryptHasher.verify(std.testing.allocator, str, password);
 
     const params = Params.interactive;
-    const str2 = try CryptEncoding.create(std.testing.allocator, password, params);
-    try CryptEncoding.verify(std.testing.allocator, &str2, password);
+    const str2 = try CryptHasher.create(std.testing.allocator, password, params);
+    try CryptHasher.verify(std.testing.allocator, &str2, password);
 }
 
 test "strHash && strVerify" {
     const alloc = std.testing.allocator;
     const password = "testpass";
 
-    const s = try strHash(alloc, password, Params.interactive);
+    const s = try strHash(
+        alloc,
+        password,
+        Options{ .kdf_params = Params.interactive, .encoding = .crypt },
+    );
     defer alloc.free(s);
     try strVerify(alloc, s, password);
+
+    const s1 = try strHash(
+        alloc,
+        password,
+        Options{ .kdf_params = Params.interactive, .encoding = .phc },
+    );
+    defer alloc.free(s1);
+    try strVerify(alloc, s1, password);
 }
 
 test "unix-scrypt" {
