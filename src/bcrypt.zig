@@ -28,7 +28,7 @@ const PhcParser = phc.Parser(Params);
 const PhcHasher = phc.Hasher(
     PhcParser,
     Params,
-    phc_kdf,
+    phcKdf,
     phc_alg_id,
     salt_length,
     derived_key_length,
@@ -245,7 +245,7 @@ pub const Params = struct {
     }
 };
 
-fn phc_kdf(
+fn phcKdf(
     allocator: *mem.Allocator,
     derived_key: []u8,
     password: []const u8,
