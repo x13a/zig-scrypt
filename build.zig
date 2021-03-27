@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
-    const lib = b.addStaticLibrary("ok", "src/scrypt.zig");
+    const lib = b.addStaticLibrary("scrypt", "src/scrypt.zig");
     lib.setBuildMode(mode);
     lib.install();
 
