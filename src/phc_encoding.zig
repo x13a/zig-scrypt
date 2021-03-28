@@ -8,19 +8,23 @@
 // https://github.com/P-H-C/phc-string-format/pull/4
 
 const std = @import("std");
-const base64 = std.base64;
+// const base64 = std.base64;
 const crypto = std.crypto;
 const fmt = std.fmt;
 const mem = std.mem;
 
+const base64 = @import("base64.zig");
+
 const Error = crypto.Error;
-const b64enc = base64.standard_encoder;
-const b64dec = base64.standard_decoder;
+const B64Encoder = base64.standard_no_pad.Encoder;
+const B64Decoder = base64.standard_no_pad.Decoder;
 
 const fields_delimiter = "$";
 const version_prefix = "v=";
 const params_delimiter = ",";
 const kv_delimiter = "=";
+const max_algorithm_id_len = 32;
+const max_param_key_len = 32;
 
 fn WrappedValue(comptime buf_len: usize) type {
     return struct {
@@ -43,7 +47,7 @@ pub fn Parser(
 ) type {
     return struct {
         const Self = @This();
-        pub const AlgorithmId = WrappedValue(32);
+        pub const AlgorithmId = WrappedValue(max_algorithm_id_len);
         pub const Salt = WrappedValue(salt_buf_len);
         pub const DerivedKey = WrappedValue(derived_key_buf_len);
 
@@ -112,11 +116,11 @@ pub fn Parser(
             }
             if (self.salt) |v| {
                 i += fields_delimiter.len;
-                i += base64.Base64Encoder.calcSize(v.len);
+                i += B64Encoder.calcSize(v.len);
             }
             if (self.derived_key) |v| {
                 i += fields_delimiter.len;
-                i += base64.Base64Encoder.calcSize(v.len);
+                i += B64Encoder.calcSize(v.len);
             }
             return i;
         }
@@ -258,40 +262,20 @@ fn write(buf: []u8, v: []const u8) usize {
 }
 
 fn b64encode(buf: []u8, v: []const u8) usize {
-    var i = base64.Base64Encoder.calcSize(v.len);
-    _ = b64enc.encode(buf, v);
-    while (i > 0) : (i -= 1) {
-        if (buf[i - 1] != '=') {
-            break;
-        }
-    }
-    return i;
+    _ = B64Encoder.encode(buf, v);
+    return B64Encoder.calcSize(v.len);
 }
 
 fn b64decode(buf_v: anytype, s: []const u8) !void {
     if (s.len == 0) {
         return Error.InvalidEncoding;
     }
-    if (s.len % 4 != 0) {
-        const allocator = std.testing.allocator;
-        var s1 = try allocator.alloc(u8, s.len + (4 - (s.len % 4)));
-        defer allocator.free(s1);
-        mem.copy(u8, s1, s);
-        mem.set(u8, s1[s.len..], '=');
-        const len = try b64dec.calcSize(s1);
-        if (len > buf_v.buf.len) {
-            return Error.InvalidEncoding;
-        }
-        buf_v.len = len;
-        try b64dec.decode(buf_v.buf[0..len], s1);
-    } else {
-        const len = try b64dec.calcSize(s);
-        if (len > buf_v.buf.len) {
-            return Error.InvalidEncoding;
-        }
-        buf_v.len = len;
-        try b64dec.decode(buf_v.buf[0..len], s);
+    const len = try B64Decoder.calcSizeForSlice(s);
+    if (len > buf_v.buf.len) {
+        return Error.InvalidEncoding;
     }
+    buf_v.len = len;
+    try B64Decoder.decode(&buf_v.buf, s);
 }
 
 fn IteratorParam(comptime value_buf_len: usize) type {
@@ -329,7 +313,7 @@ pub fn ParamsIterator(comptime value_buf_len: usize) type {
             }
             var it = mem.split(s, kv_delimiter);
             const key = it.next() orelse return error.InvalidEncoding;
-            if (key.len == 0 or key.len > 32) {
+            if (key.len == 0 or key.len > max_param_key_len) {
                 return error.InvalidEncoding;
             }
             const value = it.next() orelse return error.InvalidEncoding;
@@ -355,7 +339,7 @@ test "conv" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -368,7 +352,7 @@ test "conv only id" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -381,7 +365,7 @@ test "conv only version" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -394,7 +378,7 @@ test "conv only params" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -407,7 +391,7 @@ test "conv only salt" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -420,7 +404,7 @@ test "conv without derived_key" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -433,7 +417,7 @@ test "conv without salt" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -446,7 +430,7 @@ test "conv without params" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -459,7 +443,7 @@ test "conv without version" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -472,7 +456,7 @@ test "conv without params and derived_key" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -485,7 +469,7 @@ test "conv without version and params" {
 
     var v = try scrypt.PhcParser.fromString(s);
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     const s1 = try v.toString(&buf);
 
     std.testing.expectEqualSlices(u8, s, s1);
@@ -509,7 +493,7 @@ test "error: derived_key without salt" {
     var v = try scrypt.PhcParser.fromString(s);
     v.derived_key = scrypt.PhcParser.DerivedKey{};
 
-    var buf: [s.len * 2]u8 = undefined;
+    var buf: [s.len]u8 = undefined;
     std.testing.expectError(Error.InvalidEncoding, v.toString(&buf));
 }
 
@@ -522,4 +506,21 @@ test "Hasher" {
     var buf: [128]u8 = undefined;
     const s = try scrypt.PhcHasher.create(alloc, password, scrypt.Params.interactive, &buf);
     try scrypt.PhcHasher.verify(alloc, s, password);
+}
+
+test "calcSize" {
+    const scrypt = @import("scrypt.zig");
+    const alloc = std.testing.allocator;
+
+    const s = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M";
+    const password = "testpass";
+    const params = scrypt.Params.interactive;
+
+    var v = try scrypt.PhcParser.fromString(s);
+    std.testing.expectEqual(v.calcSize(), s.len);
+
+    var buf: [128]u8 = undefined;
+    const s1 = try scrypt.PhcHasher.create(alloc, password, params, &buf);
+
+    std.testing.expectEqual(scrypt.PhcHasher.calcSize(params), s1.len);
 }

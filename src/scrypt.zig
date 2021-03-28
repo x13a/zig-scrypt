@@ -22,11 +22,13 @@ pub const phc_algorithm_id = "scrypt";
 
 const Error = crypto.Error;
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
+
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
 const default_salt_len = 32;
 const default_derived_key_len = 32;
-const PhcParamsIterator = phc.ParamsIterator(fmt.count("{d}", .{math.maxInt(u30)}));
+
+pub const PhcParamsIterator = phc.ParamsIterator(fmt.count("{d}", .{math.maxInt(u30)}));
 pub const PhcParser = phc.Parser(
     PhcParamsIterator,
     Params,
@@ -366,7 +368,11 @@ pub const CryptHasher = struct {
         var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
         Codec.sliceEncode(32, &encoded_dk, &dk);
 
-        const passed = crypto.utils.timingSafeEql([43]u8, encoded_dk[0..].*, expected_encoded_dk[0..].*);
+        const passed = crypto.utils.timingSafeEql(
+            [43]u8,
+            encoded_dk[0..].*,
+            expected_encoded_dk[0..].*,
+        );
         crypto.utils.secureZero(u8, &encoded_dk);
         if (!passed) {
             return Error.PasswordVerificationFailed;
