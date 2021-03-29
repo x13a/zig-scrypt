@@ -111,10 +111,8 @@ pub fn Parser(
                     sep_cnt += 1;
                 }
                 if (sep_cnt != 0) {
-                    i += fields_delimiter.len;
-                    sep_cnt -= 1;
+                    i += fields_delimiter.len + ((sep_cnt - 1) * params_delimiter.len);
                 }
-                i += sep_cnt * params_delimiter.len;
             }
             if (self.salt) |v| {
                 i += fields_delimiter.len + B64Encoder.calcSize(v.len);
