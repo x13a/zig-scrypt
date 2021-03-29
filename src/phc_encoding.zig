@@ -95,7 +95,11 @@ pub fn Parser(
         pub fn calcSize(self: *Self) usize {
             var i = fields_delimiter.len + self.algorithm_id.len;
             if (self.version) |v| {
-                i += fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v });
+                // 32bit safe downcast
+                i += @intCast(
+                    usize,
+                    fmt.count("{s}{s}{d}", .{ fields_delimiter, version_prefix, v }),
+                );
             }
             if (self.params) |v| {
                 var params: [@typeInfo(Params).Struct.fields.len]?PhcParamsIterator.Param = undefined;
@@ -113,12 +117,10 @@ pub fn Parser(
                 i += sep_cnt * params_delimiter.len;
             }
             if (self.salt) |v| {
-                i += fields_delimiter.len;
-                i += B64Encoder.calcSize(v.len);
+                i += fields_delimiter.len + B64Encoder.calcSize(v.len);
             }
             if (self.derived_key) |v| {
-                i += fields_delimiter.len;
-                i += B64Encoder.calcSize(v.len);
+                i += fields_delimiter.len + B64Encoder.calcSize(v.len);
             }
             return i;
         }
