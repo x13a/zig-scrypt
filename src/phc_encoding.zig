@@ -8,12 +8,10 @@
 // https://github.com/P-H-C/phc-string-format/pull/4
 
 const std = @import("std");
-// const base64 = std.base64;
+const base64 = std.base64;
 const crypto = std.crypto;
 const fmt = std.fmt;
 const mem = std.mem;
-
-const base64 = @import("base64.zig");
 
 const Error = crypto.Error;
 const B64Encoder = base64.standard_no_pad.Encoder;
@@ -130,7 +128,9 @@ pub fn Parser(
             if (self.salt == null and self.derived_key != null) {
                 return error.InvalidEncoding;
             }
-            var i = write(out, self.algorithm_id.unwrap());
+            mem.copy(u8, out, fields_delimiter);
+            mem.copy(u8, out[fields_delimiter.len..], self.algorithm_id.unwrap());
+            var i = fields_delimiter.len + self.algorithm_id.len;
             if (self.version) |v| {
                 const s = fmt.bufPrint(
                     out[i..],
@@ -168,13 +168,9 @@ pub fn Parser(
                 }
             }
             if (self.salt) |v| {
-                mem.copy(u8, out[i..], fields_delimiter);
-                i += fields_delimiter.len;
                 i += b64encode(out[i..], v.unwrap());
             }
             if (self.derived_key) |v| {
-                mem.copy(u8, out[i..], fields_delimiter);
-                i += fields_delimiter.len;
                 i += b64encode(out[i..], v.unwrap());
             }
             return out[0..i];
@@ -255,15 +251,10 @@ pub fn Hasher(
     };
 }
 
-fn write(buf: []u8, v: []const u8) usize {
-    mem.copy(u8, buf, fields_delimiter);
-    mem.copy(u8, buf[fields_delimiter.len..], v);
-    return fields_delimiter.len + v.len;
-}
-
 fn b64encode(buf: []u8, v: []const u8) usize {
-    _ = B64Encoder.encode(buf, v);
-    return B64Encoder.calcSize(v.len);
+    mem.copy(u8, buf, fields_delimiter);
+    const s = B64Encoder.encode(buf[fields_delimiter.len..], v);
+    return fields_delimiter.len + s.len;
 }
 
 fn b64decode(buf_v: anytype, s: []const u8) !void {
