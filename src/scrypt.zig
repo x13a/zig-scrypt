@@ -12,36 +12,22 @@ const crypto = std.crypto;
 const fmt = std.fmt;
 const math = std.math;
 const mem = std.mem;
-const meta = std.meta;
 
-const phc = @import("phc_encoding.zig");
+const phc_format = @import("phc_encoding.zig");
+const crypt_format = @import("crypt_encoding_scrypt.zig");
 const pwhash = @import("pwhash.zig");
 
-const Error = crypto.Error;
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
+
+pub const KdfError = crypto.Error || mem.Allocator.Error;
+pub const Error = KdfError || phc_format.Error || crypt_format.Error;
 
 const max_size = math.maxInt(usize);
 const max_int = max_size >> 1;
 const default_salt_len = 32;
-const default_derived_key_len = 32;
-
-/// Algorithm for PhcEncoding
-pub const phc_algorithm_id = "scrypt";
-pub const PhcParamsIterator = phc.ParamsIterator(fmt.count("{d}", .{math.maxInt(u30)}));
-pub const PhcParser = phc.Parser(
-    PhcParamsIterator,
-    Params,
-    default_salt_len,
-    default_derived_key_len,
-);
-pub const PhcHasher = phc.Hasher(
-    PhcParser,
-    Params,
-    kdf,
-    phc_algorithm_id,
-    default_salt_len,
-    default_derived_key_len,
-);
+const default_hash_len = 32;
+const max_salt_len = 64;
+const max_hash_len = 64;
 
 fn blockCopy(dst: []align(16) u32, src: []align(16) const u32, n: usize) void {
     mem.copy(u32, dst, src[0 .. n * 16]);
@@ -142,7 +128,7 @@ fn smix(b: []align(16) u8, r: u30, n: usize, v: []align(16) u32, xy: []align(16)
 pub const Params = struct {
     const Self = @This();
 
-    log_n: u6,
+    ln: u6,
     r: u30,
     p: u30,
 
@@ -152,68 +138,25 @@ pub const Params = struct {
     /// Baseline parameters for offline usage
     pub const sensitive = Self.fromLimits(33554432, 1073741824);
 
-    /// Create Params from ops and mem limits
+    /// Create parameters from ops and mem limits
     pub fn fromLimits(ops_limit: u64, mem_limit: usize) Self {
         const ops = math.max(32768, ops_limit);
         const r: u30 = 8;
         if (ops < mem_limit / 32) {
             const max_n = ops / (r * 4);
-            return Self{ .r = r, .p = 1, .log_n = @intCast(u6, math.log2(max_n)) };
+            return Self{ .r = r, .p = 1, .ln = @intCast(u6, math.log2(max_n)) };
         } else {
             const max_n = mem_limit / (@intCast(usize, r) * 128);
-            const log_n = @intCast(u6, math.log2(max_n));
-            const max_rp = math.min(0x3fffffff, (ops / 4) / (@as(u64, 1) << log_n));
-            return Self{ .r = r, .p = @intCast(u30, max_rp / @as(u64, r)), .log_n = log_n };
+            const ln = @intCast(u6, math.log2(max_n));
+            const max_rp = math.min(0x3fffffff, (ops / 4) / (@as(u64, 1) << ln));
+            return Self{ .r = r, .p = @intCast(u30, max_rp / @as(u64, r)), .ln = ln };
         }
-    }
-
-    /// Public interface for PhcEncoding
-    pub fn fromPhcEncoding(it: *PhcParamsIterator) Error!Self {
-        var ln: ?u6 = null;
-        var r: ?u30 = null;
-        var p: ?u30 = null;
-        while (try it.next()) |param| {
-            if (mem.eql(u8, param.key, "ln")) {
-                ln = try param.decimal(u6);
-            } else if (mem.eql(u8, param.key, "r")) {
-                r = try param.decimal(u30);
-            } else if (mem.eql(u8, param.key, "p")) {
-                p = try param.decimal(u30);
-            } else {
-                return Error.InvalidEncoding;
-            }
-        }
-        return Self{
-            .log_n = ln orelse return Error.InvalidEncoding,
-            .r = r orelse return Error.InvalidEncoding,
-            .p = p orelse return Error.InvalidEncoding,
-        };
-    }
-
-    /// Public interface for PhcEncoding
-    pub fn toPhcEncoding(self: Self, out: []?PhcParamsIterator.Param) void {
-        var ln = PhcParamsIterator.Param.Value{};
-        var r = PhcParamsIterator.Param.Value{};
-        var p = PhcParamsIterator.Param.Value{};
-
-        const s = fmt.bufPrint(&ln.buf, "{d}", .{self.log_n}) catch unreachable;
-        ln.len = s.len;
-
-        const s1 = fmt.bufPrint(&r.buf, "{d}", .{self.r}) catch unreachable;
-        r.len = s1.len;
-
-        const s2 = fmt.bufPrint(&p.buf, "{d}", .{self.p}) catch unreachable;
-        p.len = s2.len;
-
-        out[0] = PhcParamsIterator.Param{ .key = "ln", .value = ln };
-        out[1] = PhcParamsIterator.Param{ .key = "r", .value = r };
-        out[2] = PhcParamsIterator.Param{ .key = "p", .value = p };
     }
 };
 
-/// Apply SCRYPT to generate a key from a password.
+/// Apply scrypt to generate a key from a password.
 ///
-/// SCRYPT is defined in RFC 7914.
+/// scrypt is defined in RFC 7914.
 ///
 /// allocator: *mem.Allocator.
 ///
@@ -232,17 +175,17 @@ pub fn kdf(
     password: []const u8,
     salt: []const u8,
     params: Params,
-) (Error || mem.Allocator.Error)!void {
+) KdfError!void {
     if (derived_key.len == 0 or derived_key.len / 32 > 0xffff_ffff) {
-        return Error.OutputTooLong;
+        return KdfError.OutputTooLong;
     }
-    if (params.log_n == 0 or params.r == 0 or params.p == 0) {
-        return Error.WeakParameters;
+    if (params.ln == 0 or params.r == 0 or params.p == 0) {
+        return KdfError.WeakParameters;
     }
-    // 32bit check
-    const n64 = @as(u64, 1) << params.log_n;
+
+    const n64 = @as(u64, 1) << params.ln;
     if (n64 > max_size) {
-        return Error.WeakParameters;
+        return KdfError.WeakParameters;
     }
     const n = @intCast(usize, n64);
     if (@as(u64, params.r) * @as(u64, params.p) >= 1 << 30 or
@@ -250,7 +193,7 @@ pub fn kdf(
         params.r > max_int / 256 or
         n > max_int / 128 / @as(u64, params.r))
     {
-        return Error.WeakParameters;
+        return KdfError.WeakParameters;
     }
 
     var xy = try allocator.alignedAlloc(u32, 16, 64 * params.r);
@@ -268,149 +211,99 @@ pub fn kdf(
     try crypto.pwhash.pbkdf2(derived_key, password, dk, 1, HmacSha256);
 }
 
-fn CustomB64Codec(comptime map: [64]u8) type {
-    return struct {
-        const map64 = map;
+/// Hash and verify passwords using the PHC format.
+const PhcFormatHasher = struct {
+    const BinValue = phc_format.BinValue;
 
-        fn encodedLen(len: usize) usize {
-            return (len * 4 + 2) / 3;
-        }
-
-        fn decodedLen(len: usize) usize {
-            return len / 4 * 3 + (len % 4) * 3 / 4;
-        }
-
-        fn intEncode(dst: []u8, src: anytype) void {
-            var n = src;
-            for (dst) |*x, i| {
-                x.* = map64[@truncate(u6, n)];
-                n = math.shr(@TypeOf(src), n, 6);
-            }
-        }
-
-        fn intDecode(comptime T: type, src: *const [(meta.bitCount(T) + 5) / 6]u8) Error!T {
-            var v: T = 0;
-            for (src) |x, i| {
-                const vi = mem.indexOfScalar(u8, &map64, x) orelse return Error.InvalidEncoding;
-                v |= @intCast(T, vi) << @intCast(math.Log2Int(T), i * 6);
-            }
-            return v;
-        }
-
-        fn sliceEncode(comptime len: usize, dst: *[encodedLen(len)]u8, src: *const [len]u8) void {
-            var i: usize = 0;
-            while (i < src.len / 3) : (i += 1) {
-                intEncode(dst[i * 4 ..][0..4], mem.readIntSliceLittle(u24, src[i * 3 ..]));
-            }
-            const leftover = src[i * 3 ..];
-            var v: u24 = 0;
-            for (leftover) |x, j| {
-                v |= @as(u24, x) << @intCast(u5, j * 8);
-            }
-            intEncode(dst[i * 4 ..], v);
-        }
-
-        fn sliceDecode(comptime len: usize, dst: *[decodedLen(len)]u8, src: *const [len]u8) Error!void {
-            var i: usize = 0;
-            while (i < src.len / 4) : (i += 1) {
-                mem.writeIntSliceLittle(u24, dst[i * 3 ..], try intDecode(u24, src[i * 4 ..][0..4]));
-            }
-            const leftover = src[i * 4 ..];
-            var v: u24 = 0;
-            for (leftover) |_, j| {
-                v |= @as(u24, try intDecode(u6, leftover[j..][0..1])) << @intCast(u5, j * 6);
-            }
-            for (dst[i * 3 ..]) |*x, j| {
-                x.* = @truncate(u8, v >> @intCast(u5, j * 8));
-            }
-        }
+    const HashResult = struct {
+        alg_id: []const u8,
+        ln: u6,
+        r: u30,
+        p: u30,
+        salt: BinValue(max_salt_len),
+        hash: BinValue(max_hash_len),
     };
-}
 
-// https://en.wikipedia.org/wiki/Crypt_(C)
-// https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
-pub const CryptHasher = struct {
-    const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".*);
-    const prefix = "$7$";
+    /// Return a non-deterministic hash of the password encoded as a PHC-format string
+    pub fn create(allocator: *mem.Allocator, password: []const u8, params: Params, buf: []u8) (phc_format.Error || KdfError)![]const u8 {
+        var salt: [default_salt_len]u8 = undefined;
+        crypto.random.bytes(&salt);
 
-    /// Length (in bytes) of a password hash
-    pub const pwhash_str_length: usize = 101;
+        var hash: [default_hash_len]u8 = undefined;
+        try kdf(allocator, &hash, password, &salt, params);
 
-    fn parseParams(encoded: *const [14]u8) Error!Params {
-        if (!mem.eql(u8, prefix, encoded[0..3])) {
-            return Error.InvalidEncoding;
-        }
-        return Params{
-            .log_n = try Codec.intDecode(u6, encoded[3..4]),
-            .r = try Codec.intDecode(u30, encoded[4..9]),
-            .p = try Codec.intDecode(u30, encoded[9..14]),
-        };
+        return phc_format.serialize(HashResult{
+            .alg_id = "scrypt",
+            .ln = params.ln,
+            .r = params.r,
+            .p = params.p,
+            .salt = try BinValue(max_salt_len).fromSlice(&salt),
+            .hash = try BinValue(max_hash_len).fromSlice(&hash),
+        }, buf);
     }
 
-    /// Verify password against crypt encoded string
+    /// Verify a password against a PHC-format encoded string
     pub fn verify(
         allocator: *mem.Allocator,
         str: []const u8,
         password: []const u8,
-    ) (Error || mem.Allocator.Error)!void {
-        if (str.len < 58) {
-            return Error.InvalidEncoding;
-        }
-        const params = try parseParams(str[0..14]);
-        var salt = str[14..];
-        salt = salt[0 .. mem.indexOfScalar(u8, salt, '$') orelse return Error.InvalidEncoding];
-        const str_dk = str[14 + salt.len + 1 ..];
-        if (str_dk.len < 43) {
-            return Error.InvalidEncoding;
-        }
-        const expected_encoded_dk = str_dk[0..43];
-
-        var dk: [32]u8 = undefined;
-        try kdf(allocator, &dk, password, salt, params);
-
-        var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
-        Codec.sliceEncode(32, &encoded_dk, &dk);
-
-        const passed = crypto.utils.timingSafeEql(
-            [43]u8,
-            encoded_dk[0..].*,
-            expected_encoded_dk[0..].*,
-        );
-        crypto.utils.secureZero(u8, &encoded_dk);
-        if (!passed) {
-            return Error.PasswordVerificationFailed;
-        }
-    }
-
-    /// Derive key from password and return crypt encoded string
-    pub fn create(
-        allocator: *mem.Allocator,
-        password: []const u8,
-        params: Params,
-    ) (Error || mem.Allocator.Error)![pwhash_str_length]u8 {
-        var salt_bin: [32]u8 = undefined;
-        crypto.random.bytes(&salt_bin);
-        var salt: [Codec.encodedLen(salt_bin.len)]u8 = undefined;
-        Codec.sliceEncode(32, &salt, &salt_bin);
-
-        var dk: [32]u8 = undefined;
-        try kdf(allocator, &dk, password, &salt, params);
-
-        var encoded_dk: [Codec.encodedLen(dk.len)]u8 = undefined;
-        Codec.sliceEncode(32, &encoded_dk, &dk);
-
-        var buf: [pwhash_str_length]u8 = undefined;
-        mem.copy(u8, buf[0..3], prefix);
-        Codec.intEncode(buf[3..4], params.log_n);
-        Codec.intEncode(buf[4..9], params.r);
-        Codec.intEncode(buf[9..14], params.p);
-        mem.copy(u8, buf[14..57], salt[0..]);
-        buf[57] = '$';
-        mem.copy(u8, buf[58..], encoded_dk[0..]);
-        return buf;
+    ) (phc_format.Error || KdfError)!void {
+        const hash_result = try phc_format.deserialize(HashResult, str);
+        if (!mem.eql(u8, hash_result.alg_id, "scrypt")) return Error.PasswordVerificationFailed;
+        const params = Params{ .ln = hash_result.ln, .r = hash_result.r, .p = hash_result.p };
+        const expected_hash = hash_result.hash.unwrap();
+        var hash_buf: [max_hash_len]u8 = undefined;
+        if (expected_hash.len > hash_buf.len) return Error.InvalidEncoding;
+        var hash = hash_buf[0..expected_hash.len];
+        try kdf(allocator, hash, password, hash_result.salt.unwrap(), params);
+        if (!mem.eql(u8, hash, expected_hash)) return Error.PasswordVerificationFailed;
     }
 };
 
+/// Hash and verify passwords using the modular crypt format.
+const CryptFormatHasher = struct {
+    const BinValue = crypt_format.BinValue;
+    const HashResult = crypt_format.HashResult(max_hash_len);
+
+    /// Length of a string returned by the create() function
+    pub const pwhash_str_length: usize = 101;
+
+    /// Return a non-deterministic hash of the password encoded into the modular crypt format
+    pub fn create(allocator: *mem.Allocator, password: []const u8, params: Params, buf: []u8) (crypt_format.Error || KdfError)![]const u8 {
+        var salt_bin: [default_salt_len]u8 = undefined;
+        crypto.random.bytes(&salt_bin);
+        const salt = crypt_format.saltFromBin(salt_bin.len, salt_bin);
+
+        var hash: [default_hash_len]u8 = undefined;
+        try kdf(allocator, &hash, password, &salt, params);
+
+        return crypt_format.serialize(HashResult{
+            .ln = params.ln,
+            .r = params.r,
+            .p = params.p,
+            .salt = &salt,
+            .hash = try BinValue(max_hash_len).fromSlice(&hash),
+        }, buf);
+    }
+
+    /// Verify a password against a string in modular crypt format
+    pub fn verify(
+        allocator: *mem.Allocator,
+        str: []const u8,
+        password: []const u8,
+    ) (crypt_format.Error || KdfError)!void {
+        const hash_result = try crypt_format.deserialize(HashResult, str);
+        const params = Params{ .ln = hash_result.ln, .r = hash_result.r, .p = hash_result.p };
+        const expected_hash = hash_result.hash.unwrap();
+        var hash_buf: [max_hash_len]u8 = undefined;
+        if (expected_hash.len > hash_buf.len) return Error.InvalidEncoding;
+        var hash = hash_buf[0..expected_hash.len];
+        try kdf(allocator, hash, password, hash_result.salt, params);
+        if (!mem.eql(u8, hash, expected_hash)) return Error.PasswordVerificationFailed;
+    }
+};
+
+/// Options for hashing a password.
 pub const HashOptions = struct {
     kdf_params: Params,
     encoding: pwhash.Encoding,
@@ -423,17 +316,14 @@ pub fn strHash(
     password: []const u8,
     options: HashOptions,
     out: []u8,
-) (Error || mem.Allocator.Error)![]u8 {
+) ![]const u8 {
     switch (options.encoding) {
-        .phc => return PhcHasher.create(allocator, password, options.kdf_params, out),
-        .crypt => {
-            const s = try CryptHasher.create(allocator, password, options.kdf_params);
-            mem.copy(u8, out, &s);
-            return out[0..s.len];
-        },
+        .phc => return PhcFormatHasher.create(allocator, password, options.kdf_params, out),
+        .crypt => return CryptFormatHasher.create(allocator, password, options.kdf_params, out),
     }
 }
 
+/// Options for hash verification.
 pub const VerifyOptions = struct {};
 
 /// Verify that a previously computed hash is valid for a given password.
@@ -442,11 +332,11 @@ pub fn strVerify(
     str: []const u8,
     password: []const u8,
     options: VerifyOptions,
-) (Error || mem.Allocator.Error)!void {
-    if (mem.startsWith(u8, str, CryptHasher.prefix)) {
-        return CryptHasher.verify(allocator, str, password);
+) !void {
+    if (mem.startsWith(u8, str, crypt_format.prefix)) {
+        return CryptFormatHasher.verify(allocator, str, password);
     } else {
-        return PhcHasher.verify(allocator, str, password);
+        return PhcFormatHasher.verify(allocator, str, password);
     }
 }
 
@@ -455,7 +345,7 @@ test "kdf" {
     const salt = "saltsalt";
 
     var dk: [32]u8 = undefined;
-    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 15, .r = 8, .p = 1 });
+    try kdf(std.testing.allocator, &dk, password, salt, .{ .ln = 15, .r = 8, .p = 1 });
 
     const hex = "1e0f97c3f6609024022fbe698da29c2fe53ef1087a8e396dc6d5d2a041e886de";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -469,7 +359,7 @@ test "kdf rfc 1" {
     const salt = "";
 
     var dk: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 4, .r = 1, .p = 1 });
+    try kdf(std.testing.allocator, &dk, password, salt, .{ .ln = 4, .r = 1, .p = 1 });
 
     const hex = "77d6576238657b203b19ca42c18a0497f16b4844e3074ae8dfdffa3fede21442fcd0069ded0948f8326a753a0fc81f17e8d3e0fb2e0d3628cf35e20c38d18906";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -483,7 +373,7 @@ test "kdf rfc 2" {
     const salt = "NaCl";
 
     var dk: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 10, .r = 8, .p = 16 });
+    try kdf(std.testing.allocator, &dk, password, salt, .{ .ln = 10, .r = 8, .p = 16 });
 
     const hex = "fdbabe1c9d3472007856e7190d01e9fe7c6ad7cbc8237830e77376634b3731622eaf30d92e22a3886ff109279d9830dac727afb94a83ee6d8360cbdfa2cc0640";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -497,7 +387,7 @@ test "kdf rfc 3" {
     const salt = "SodiumChloride";
 
     var dk: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 14, .r = 8, .p = 1 });
+    try kdf(std.testing.allocator, &dk, password, salt, .{ .ln = 14, .r = 8, .p = 1 });
 
     const hex = "7023bdcb3afd7348461c06cd81fd38ebfda8fbba904f8e3ea9b543f6545da1f2d5432955613f0fcf62d49705242a9af9e61e85dc0d651e40dfcf017b45575887";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -516,7 +406,7 @@ test "kdf rfc 4" {
     const salt = "SodiumChloride";
 
     var dk: [64]u8 = undefined;
-    try kdf(std.testing.allocator, &dk, password, salt, Params{ .log_n = 20, .r = 8, .p = 1 });
+    try kdf(std.testing.allocator, &dk, password, salt, .{ .ln = 20, .r = 8, .p = 1 });
 
     const hex = "2101cb9b6a511aaeaddbbe09cf70f881ec568d574a2ffd4dabe5ee9820adaa478e56fd8f4ba5d09ffa1c6d927c40f4c337304049e8a952fbcbf45c6fa77a41a4";
     var bytes: [hex.len / 2]u8 = undefined;
@@ -528,14 +418,15 @@ test "kdf rfc 4" {
 test "password hashing (crypt format)" {
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
-    try CryptHasher.verify(std.testing.allocator, str, password);
+    try CryptFormatHasher.verify(std.testing.allocator, str, password);
 
     const params = Params.interactive;
-    const str2 = try CryptHasher.create(std.testing.allocator, password, params);
-    try CryptHasher.verify(std.testing.allocator, &str2, password);
+    var buf: [CryptFormatHasher.pwhash_str_length]u8 = undefined;
+    const str2 = try CryptFormatHasher.create(std.testing.allocator, password, params, &buf);
+    try CryptFormatHasher.verify(std.testing.allocator, str2, password);
 }
 
-test "strHash && strVerify" {
+test "strHash and strVerify" {
     const alloc = std.testing.allocator;
 
     const password = "testpass";
@@ -561,8 +452,15 @@ test "strHash && strVerify" {
 
 test "unix-scrypt" {
     // https://gitlab.com/jas/scrypt-unix-crypt/blob/master/unix-scrypt.txt
-    const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
-    const password = "pleaseletmein";
-
-    try strVerify(std.testing.allocator, str, password, VerifyOptions{});
+    {
+        const str = "$7$C6..../....SodiumChloride$kBGj9fHznVYFQMEn/qDCfrDevf9YDtcDdKvEqHJLV8D";
+        const password = "pleaseletmein";
+        try strVerify(std.testing.allocator, str, password, .{});
+    }
+    // one of the libsodium test vectors
+    {
+        const str = "$7$B6....1....75gBMAGwfFWZqBdyF3WdTQnWdUsuTiWjG1fF9c1jiSD$tc8RoB3.Em3/zNgMLWo2u00oGIoTyJv4fl3Fl8Tix72";
+        const password = "^T5H$JYt39n%K*j:W]!1s?vg!:jGi]Ax?..l7[p0v:1jHTpla9;]bUN;?bWyCbtqg nrDFal+Jxl3,2`#^tFSu%v_+7iYse8-cCkNf!tD=KrW)";
+        try strVerify(std.testing.allocator, str, password, .{});
+    }
 }
