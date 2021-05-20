@@ -15,7 +15,7 @@ const version_param_name = "v";
 const params_delimiter = ",";
 const kv_delimiter = "=";
 
-pub const Error = std.crypto.Error || error{NoSpaceLeft};
+pub const Error = std.crypto.errors.Error || error{NoSpaceLeft};
 
 const B64Decoder = std.base64.standard_no_pad.Decoder;
 const B64Encoder = std.base64.standard_no_pad.Encoder;
@@ -348,20 +348,20 @@ test "phc format - encoding/decoding" {
         const v = try deserialize(input.HashResult, input.str);
         var buf: [input.str.len]u8 = undefined;
         const s1 = try serialize(v, &buf);
-        std.testing.expectEqualSlices(u8, input.str, s1);
+        try std.testing.expectEqualSlices(u8, input.str, s1);
     }
 }
 
 test "phc format - empty input string" {
     const s = "";
     const v = deserialize(struct { alg_id: []const u8 }, s);
-    std.testing.expectError(Error.InvalidEncoding, v);
+    try std.testing.expectError(Error.InvalidEncoding, v);
 }
 
 test "phc format - hash without salt" {
     const s = "$scrypt";
     const v = deserialize(struct { alg_id: []const u8, hash: BinValue(16) }, s);
-    std.testing.expectError(Error.InvalidEncoding, v);
+    try std.testing.expectError(Error.InvalidEncoding, v);
 }
 
 test "phc format - calcSize" {
@@ -375,5 +375,5 @@ test "phc format - calcSize" {
         salt: BinValue(8),
         hash: BinValue(8),
     }, s);
-    std.testing.expectEqual(calcSize(v), s.len);
+    try std.testing.expectEqual(calcSize(v), s.len);
 }

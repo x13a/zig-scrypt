@@ -19,7 +19,7 @@ const pwhash = @import("pwhash.zig");
 
 const HmacSha256 = crypto.auth.hmac.sha2.HmacSha256;
 
-pub const KdfError = crypto.Error || mem.Allocator.Error;
+pub const KdfError = pwhash.KdfError;
 pub const Error = KdfError || phc_format.Error || crypt_format.Error || error{AllocatorRequired};
 
 const max_size = math.maxInt(usize);
@@ -364,7 +364,7 @@ test "kdf" {
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &dk);
+    try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 1" {
@@ -378,7 +378,7 @@ test "kdf rfc 1" {
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &dk);
+    try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 2" {
@@ -392,7 +392,7 @@ test "kdf rfc 2" {
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &dk);
+    try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 3" {
@@ -406,7 +406,7 @@ test "kdf rfc 3" {
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &dk);
+    try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "kdf rfc 4" {
@@ -425,7 +425,7 @@ test "kdf rfc 4" {
     var bytes: [hex.len / 2]u8 = undefined;
     _ = try fmt.hexToBytes(&bytes, hex);
 
-    std.testing.expectEqualSlices(u8, &bytes, &dk);
+    try std.testing.expectEqualSlices(u8, &bytes, &dk);
 }
 
 test "password hashing (crypt format)" {

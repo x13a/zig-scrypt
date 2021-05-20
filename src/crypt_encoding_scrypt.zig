@@ -14,7 +14,7 @@ const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
 
-pub const Error = std.crypto.Error || error{NoSpaceLeft};
+pub const Error = std.crypto.errors.Error || error{NoSpaceLeft};
 
 /// Standard type for a set of scrypt parameters, with the salt and hash.
 pub fn HashResult(comptime max_hash_len: usize) type {
@@ -210,5 +210,5 @@ test "scrypt crypt format" {
     const params = try deserialize(HashResult(32), str);
     var buf: [str.len]u8 = undefined;
     const s1 = try serialize(params, &buf);
-    std.testing.expectEqualStrings(s1, str);
+    try std.testing.expectEqualStrings(s1, str);
 }
