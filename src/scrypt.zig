@@ -254,14 +254,14 @@ const PhcFormatHasher = struct {
         password: []const u8,
     ) (phc_format.Error || KdfError)!void {
         const hash_result = try phc_format.deserialize(HashResult, str);
-        if (!mem.eql(u8, hash_result.alg_id, "scrypt")) return Error.PasswordVerificationFailed;
+        if (!mem.eql(u8, hash_result.alg_id, "scrypt")) return KdfError.PasswordVerificationFailed;
         const params = Params{ .ln = hash_result.ln, .r = hash_result.r, .p = hash_result.p };
         const expected_hash = hash_result.hash.unwrap();
         var hash_buf: [max_hash_len]u8 = undefined;
-        if (expected_hash.len > hash_buf.len) return Error.InvalidEncoding;
+        if (expected_hash.len > hash_buf.len) return KdfError.InvalidEncoding;
         var hash = hash_buf[0..expected_hash.len];
         try kdf(allocator, hash, password, hash_result.salt.unwrap(), params);
-        if (!mem.eql(u8, hash, expected_hash)) return Error.PasswordVerificationFailed;
+        if (!mem.eql(u8, hash, expected_hash)) return KdfError.PasswordVerificationFailed;
     }
 };
 
@@ -306,10 +306,10 @@ const CryptFormatHasher = struct {
         const params = Params{ .ln = hash_result.ln, .r = hash_result.r, .p = hash_result.p };
         const expected_hash = hash_result.hash.unwrap();
         var hash_buf: [max_hash_len]u8 = undefined;
-        if (expected_hash.len > hash_buf.len) return Error.InvalidEncoding;
+        if (expected_hash.len > hash_buf.len) return KdfError.InvalidEncoding;
         var hash = hash_buf[0..expected_hash.len];
         try kdf(allocator, hash, password, hash_result.salt, params);
-        if (!mem.eql(u8, hash, expected_hash)) return Error.PasswordVerificationFailed;
+        if (!mem.eql(u8, hash, expected_hash)) return KdfError.PasswordVerificationFailed;
     }
 };
 
