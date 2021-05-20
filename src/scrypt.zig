@@ -225,7 +225,12 @@ const PhcFormatHasher = struct {
     };
 
     /// Return a non-deterministic hash of the password encoded as a PHC-format string
-    pub fn create(allocator: *mem.Allocator, password: []const u8, params: Params, buf: []u8) (phc_format.Error || KdfError)![]const u8 {
+    pub fn create(
+        allocator: *mem.Allocator,
+        password: []const u8,
+        params: Params,
+        buf: []u8,
+    ) (phc_format.Error || KdfError)![]const u8 {
         var salt: [default_salt_len]u8 = undefined;
         crypto.random.bytes(&salt);
 
@@ -269,7 +274,12 @@ const CryptFormatHasher = struct {
     pub const pwhash_str_length: usize = 101;
 
     /// Return a non-deterministic hash of the password encoded into the modular crypt format
-    pub fn create(allocator: *mem.Allocator, password: []const u8, params: Params, buf: []u8) (crypt_format.Error || KdfError)![]const u8 {
+    pub fn create(
+        allocator: *mem.Allocator,
+        password: []const u8,
+        params: Params,
+        buf: []u8,
+    ) (crypt_format.Error || KdfError)![]const u8 {
         var salt_bin: [default_salt_len]u8 = undefined;
         crypto.random.bytes(&salt_bin);
         const salt = crypt_format.saltFromBin(salt_bin.len, salt_bin);
@@ -316,7 +326,7 @@ pub fn strHash(
     password: []const u8,
     options: HashOptions,
     out: []u8,
-) ![]const u8 {
+) Error![]const u8 {
     switch (options.encoding) {
         .phc => return PhcFormatHasher.create(allocator, password, options.kdf_params, out),
         .crypt => return CryptFormatHasher.create(allocator, password, options.kdf_params, out),
@@ -332,7 +342,7 @@ pub fn strVerify(
     str: []const u8,
     password: []const u8,
     options: VerifyOptions,
-) !void {
+) Error!void {
     if (mem.startsWith(u8, str, crypt_format.prefix)) {
         return CryptFormatHasher.verify(allocator, str, password);
     } else {

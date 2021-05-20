@@ -36,7 +36,7 @@ pub fn BinValue(comptime max_len: usize) type {
         len: usize = 0,
 
         /// Wrap an existing byte slice
-        pub fn fromSlice(slice: []const u8) !Self {
+        pub fn fromSlice(slice: []const u8) Error!Self {
             if (slice.len > capacity) return Error.NoSpaceLeft;
             var bin_value: Self = undefined;
             mem.copy(u8, &bin_value.buf, slice);
@@ -75,7 +75,7 @@ pub fn BinValue(comptime max_len: usize) type {
 ///   - `hash`: output of the hash function
 ///
 /// Other fields will also be deserialized from the function parameters section.
-pub fn deserialize(comptime HashResult: type, str: []const u8) !HashResult {
+pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
     var out: HashResult = undefined;
     var it = mem.split(str, fields_delimiter);
     var set_fields: usize = 0;
@@ -97,7 +97,11 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) !HashResult {
                         .Optional => |opt| comptime @typeInfo(opt.child),
                         else => |t| t,
                     };
-                    out.alg_version = fmt.parseUnsigned(@Type(value_type_info), opt_version.value, 10) catch return Error.InvalidEncoding;
+                    out.alg_version = fmt.parseUnsigned(
+                        @Type(value_type_info),
+                        opt_version.value,
+                        10,
+                    ) catch return Error.InvalidEncoding;
                     set_fields += 1;
                 }
                 field = it.next() orelse break;
@@ -113,13 +117,20 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) !HashResult {
             inline for (comptime meta.fields(HashResult)) |p| {
                 if (mem.eql(u8, p.name, param.key)) {
                     switch (@typeInfo(p.field_type)) {
-                        .Int => @field(out, p.name) = fmt.parseUnsigned(p.field_type, param.value, 10) catch return Error.InvalidEncoding,
+                        .Int => @field(out, p.name) = fmt.parseUnsigned(
+                            p.field_type,
+                            param.value,
+                            10,
+                        ) catch return Error.InvalidEncoding,
                         .Pointer => |ptr| {
                             if (!ptr.is_const) @compileError("Value slice must be constant");
                             @field(out, p.name) = param.value;
                         },
                         .Struct => try @field(out, p.name).fromB64(param.value),
-                        else => std.debug.panic("Value for [{s}] must be an integer, a constant slice or a BinValue", .{p.name}),
+                        else => std.debug.panic(
+                            "Value for [{s}] must be an integer, a constant slice or a BinValue",
+                            .{p.name},
+                        ),
                     }
                     set_fields += 1;
                     found = true;
@@ -152,7 +163,8 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) !HashResult {
         break;
     }
 
-    // Check that all the required fields have been set, excluding optional values and parameters with default values
+    // Check that all the required fields have been set, excluding optional values and parameters
+    // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
         if (@typeInfo(p.field_type) != .Optional and p.default_value == null) {
@@ -176,7 +188,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) !HashResult {
 ///   - `hash`: output of the hash function
 ///
 /// `params` can also include any additional parameters.
-pub fn serialize(params: anytype, str: []u8) ![]const u8 {
+pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
     var buf = io.fixedBufferStream(str);
     try serializeTo(params, buf.writer());
     return buf.getWritten();
@@ -196,22 +208,37 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
     if (@hasField(HashResult, "alg_version")) {
         if (@typeInfo(@TypeOf(params.alg_version)) == .Optional) {
-            if (params.alg_version) |alg_version| try out.print("{s}{s}{s}{}", .{ fields_delimiter, version_param_name, kv_delimiter, alg_version });
+            if (params.alg_version) |alg_version| {
+                try out.print(
+                    "{s}{s}{s}{}",
+                    .{ fields_delimiter, version_param_name, kv_delimiter, alg_version },
+                );
+            }
         } else {
-            try out.print("{s}{s}{s}{}", .{ fields_delimiter, version_param_name, kv_delimiter, params.alg_version });
+            try out.print(
+                "{s}{s}{s}{}",
+                .{ fields_delimiter, version_param_name, kv_delimiter, params.alg_version },
+            );
         }
     }
 
     var has_params = false;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (!(mem.eql(u8, p.name, "alg_id") or mem.eql(u8, p.name, "alg_version") or mem.eql(u8, p.name, "hash") or mem.eql(u8, p.name, "salt"))) {
+        if (!(mem.eql(u8, p.name, "alg_id") or
+            mem.eql(u8, p.name, "alg_version") or
+            mem.eql(u8, p.name, "hash") or
+            mem.eql(u8, p.name, "salt")))
+        {
             const value = @field(params, p.name);
             try out.writeAll(if (has_params) params_delimiter else fields_delimiter);
             if (@typeInfo(p.field_type) == .Struct) {
                 var buf: [@TypeOf(value).max_encoded_length]u8 = undefined;
                 try out.print("{s}{s}{s}", .{ p.name, kv_delimiter, try value.toB64(&buf) });
             } else {
-                try out.print(if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{}", .{ p.name, kv_delimiter, value });
+                try out.print(
+                    if (@typeInfo(@TypeOf(value)) == .Pointer) "{s}{s}{s}" else "{s}{s}{}",
+                    .{ p.name, kv_delimiter, value },
+                );
             }
             has_params = true;
         }
@@ -248,11 +275,28 @@ test "phc format - encoding/decoding" {
     const inputs = [_]Input{
         .{
             .str = "$argon2id$v=19$key=a2V5,m=4096,t=0,p=1$X1NhbHQAAAAAAAAAAAAAAA$bWh++MKN1OiFHKgIWTLvIi1iHicmHH7+Fv3K88ifFfI",
-            .HashResult = struct { alg_id: []const u8, alg_version: u16, key: BinValue(16), m: usize, t: u64, p: u32, salt: BinValue(16), hash: BinValue(32) },
+            .HashResult = struct {
+                alg_id: []const u8,
+                alg_version: u16,
+                key: BinValue(16),
+                m: usize,
+                t: u64,
+                p: u32,
+                salt: BinValue(16),
+                hash: BinValue(32),
+            },
         },
         .{
             .str = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ$dGVzdHBhc3M",
-            .HashResult = struct { alg_id: []const u8, alg_version: ?u30, ln: u6, r: u30, p: u30, salt: BinValue(16), hash: BinValue(16) },
+            .HashResult = struct {
+                alg_id: []const u8,
+                alg_version: ?u30,
+                ln: u6,
+                r: u30,
+                p: u30,
+                salt: BinValue(16),
+                hash: BinValue(16),
+            },
         },
         .{
             .str = "$scrypt",
@@ -269,7 +313,14 @@ test "phc format - encoding/decoding" {
         },
         .{
             .str = "$scrypt$v=1$ln=15,r=8,p=1$c2FsdHNhbHQ",
-            .HashResult = struct { alg_id: []const u8, alg_version: u16, ln: u6, r: u30, p: u30, salt: BinValue(16) },
+            .HashResult = struct {
+                alg_id: []const u8,
+                alg_version: u16,
+                ln: u6,
+                r: u30,
+                p: u30,
+                salt: BinValue(16),
+            },
         },
         .{
             .str = "$scrypt$v=1$ln=15,r=8,p=1",
@@ -277,7 +328,12 @@ test "phc format - encoding/decoding" {
         },
         .{
             .str = "$scrypt$v=1$c2FsdHNhbHQ$dGVzdHBhc3M",
-            .HashResult = struct { alg_id: []const u8, alg_version: u16, salt: BinValue(16), hash: BinValue(16) },
+            .HashResult = struct {
+                alg_id: []const u8,
+                alg_version: u16,
+                salt: BinValue(16),
+                hash: BinValue(16),
+            },
         },
         .{
             .str = "$scrypt$v=1$c2FsdHNhbHQ",

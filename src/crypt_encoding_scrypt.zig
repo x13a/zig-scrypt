@@ -50,7 +50,7 @@ pub fn BinValue(comptime max_len: usize) type {
         len: usize = 0,
 
         /// Wrap an existing byte slice
-        pub fn fromSlice(slice: []const u8) !Self {
+        pub fn fromSlice(slice: []const u8) Error!Self {
             if (slice.len > capacity) return Error.NoSpaceLeft;
             var bin_value: Self = undefined;
             mem.copy(u8, &bin_value.buf, slice);
@@ -94,7 +94,7 @@ const Codec = CustomB64Codec("./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
 pub const prefix = "$7$";
 
 /// Deserialize a string into a structure `T` (matching `HashResult`).
-pub fn deserialize(comptime T: type, str: []const u8) !T {
+pub fn deserialize(comptime T: type, str: []const u8) Error!T {
     var out: T = undefined;
 
     if (str.len < 16) return Error.InvalidEncoding;
@@ -142,7 +142,8 @@ fn serializeTo(params: anytype, out: anytype) !void {
     try out.writeAll(hash_str);
 }
 
-/// Custom codec that maps 6 bits into 8 like regular Base64, but uses its own alphabet, encodes bits in little-endian, and can also encode integers.
+/// Custom codec that maps 6 bits into 8 like regular Base64, but uses its own alphabet, 
+/// encodes bits in little-endian, and can also encode integers.
 fn CustomB64Codec(comptime map: [64]u8) type {
     return struct {
         const map64 = map;
