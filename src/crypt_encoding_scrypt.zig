@@ -158,7 +158,7 @@ fn CustomB64Codec(comptime map: [64]u8) type {
 
         fn intEncode(dst: []u8, src: anytype) void {
             var n = src;
-            for (dst) |*x, i| {
+            for (dst) |*x| {
                 x.* = map64[@truncate(u6, n)];
                 n = math.shr(@TypeOf(src), n, 6);
             }
