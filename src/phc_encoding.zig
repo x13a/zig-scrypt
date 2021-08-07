@@ -77,7 +77,7 @@ pub fn BinValue(comptime max_len: usize) type {
 /// Other fields will also be deserialized from the function parameters section.
 pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
     var out: HashResult = undefined;
-    var it = mem.split(str, fields_delimiter);
+    var it = mem.split(u8, str, fields_delimiter);
     var set_fields: usize = 0;
 
     while (true) {
@@ -110,7 +110,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
 
         // Read optional parameters
         var has_params = false;
-        var it_params = mem.split(field, params_delimiter);
+        var it_params = mem.split(u8, field, params_delimiter);
         while (it_params.next()) |params| {
             const param = kvSplit(params) catch break;
             var found = false;
@@ -260,7 +260,7 @@ fn serializeTo(params: anytype, out: anytype) !void {
 
 // Split a `key=value` string into `key` and `value`
 fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
-    var it = mem.split(str, kv_delimiter);
+    var it = mem.split(u8, str, kv_delimiter);
     const key = it.next() orelse return Error.InvalidEncoding;
     const value = it.next() orelse return Error.InvalidEncoding;
     const ret = .{ .key = key, .value = value };

@@ -103,7 +103,7 @@ pub fn deserialize(comptime T: type, str: []const u8) Error!T {
     out.r = try Codec.intDecode(u30, str[4..9]);
     out.p = try Codec.intDecode(u30, str[9..14]);
 
-    var it = mem.split(str[14..], "$");
+    var it = mem.split(u8, str[14..], "$");
 
     const salt = it.next() orelse return Error.InvalidEncoding;
     if (@hasField(T, "salt")) out.salt = salt;
