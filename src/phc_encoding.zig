@@ -80,6 +80,20 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     var it = mem.split(u8, str, fields_delimiter);
     var set_fields: usize = 0;
 
+    // FIXME
+    // macOS x86_64
+    // ./build/release/bin/zig test ./lib/std/crypto/phc_encoding.zig -OReleaseFast --test-filter "encoding"
+    // .{
+    //     .str = "$scrypt$ln=15,r=8,p=1",
+    //     .HashResult = struct { alg_id: []const u8, alg_version: ?u30, ln: u6, r: u30, p: u30 },
+    // },
+    // out.alg_version != null (`00`)
+    if (@hasField(HashResult, "alg_version")) {
+        if (@typeInfo(@TypeOf(out.alg_version)) == .Optional) {
+            out.alg_version = null;
+        }
+    }
+
     while (true) {
         // Read the algorithm identifier
         if ((it.next() orelse return Error.InvalidEncoding).len != 0) {
