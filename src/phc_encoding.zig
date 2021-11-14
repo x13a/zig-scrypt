@@ -1,8 +1,4 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2015-2021 Zig Contributors
-// This file is part of [zig](https://ziglang.org/), which is MIT licensed.
-// The MIT license requires this copyright notice to be included in all copies
-// and substantial portions of the software.
+// https://github.com/P-H-C/phc-string-format
 
 const std = @import("std");
 const fmt = std.fmt;
@@ -15,7 +11,7 @@ const version_param_name = "v";
 const params_delimiter = ",";
 const kv_delimiter = "=";
 
-pub const Error = std.crypto.errors.Error || error{NoSpaceLeft};
+pub const Error = std.crypto.errors.EncodingError || error{NoSpaceLeft};
 
 const B64Decoder = std.base64.standard_no_pad.Decoder;
 const B64Encoder = std.base64.standard_no_pad.Encoder;
@@ -25,7 +21,7 @@ const B64Encoder = std.base64.standard_no_pad.Encoder;
 /// This type must be used whenever a binary value is encoded in a PHC-formatted string.
 /// This includes `salt`, `hash`, and any other binary parameters such as keys.
 ///
-/// Once initialized, the actual value can be read with the `unwrap()` function.
+/// Once initialized, the actual value can be read with the `constSlice()` function.
 pub fn BinValue(comptime max_len: usize) type {
     return struct {
         const Self = @This();
@@ -45,7 +41,7 @@ pub fn BinValue(comptime max_len: usize) type {
         }
 
         /// Return the slice containing the actual value.
-        pub fn unwrap(self: Self) []const u8 {
+        pub fn constSlice(self: Self) []const u8 {
             return self.buf[0..self.len];
         }
 
@@ -57,7 +53,7 @@ pub fn BinValue(comptime max_len: usize) type {
         }
 
         fn toB64(self: Self, buf: []u8) ![]const u8 {
-            const value = self.unwrap();
+            const value = self.constSlice();
             const len = B64Encoder.calcSize(value.len);
             if (len > buf.len) return Error.NoSpaceLeft;
             return B64Encoder.encode(buf, value);
@@ -76,29 +72,13 @@ pub fn BinValue(comptime max_len: usize) type {
 ///
 /// Other fields will also be deserialized from the function parameters section.
 pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult {
-    var out: HashResult = undefined;
+    var out = mem.zeroes(HashResult);
     var it = mem.split(u8, str, fields_delimiter);
     var set_fields: usize = 0;
 
-    // FIXME
-    // macOS x86_64
-    // ./build/release/bin/zig test ./lib/std/crypto/phc_encoding.zig -OReleaseFast --test-filter "encoding"
-    // .{
-    //     .str = "$scrypt$ln=15,r=8,p=1",
-    //     .HashResult = struct { alg_id: []const u8, alg_version: ?u30, ln: u6, r: u30, p: u30 },
-    // },
-    // out.alg_version != null (`00`)
-    if (@hasField(HashResult, "alg_version")) {
-        if (@typeInfo(@TypeOf(out.alg_version)) == .Optional) {
-            out.alg_version = null;
-        }
-    }
-
     while (true) {
         // Read the algorithm identifier
-        if ((it.next() orelse return Error.InvalidEncoding).len != 0) {
-            return Error.InvalidEncoding;
-        }
+        if ((it.next() orelse return Error.InvalidEncoding).len != 0) return Error.InvalidEncoding;
         out.alg_id = it.next() orelse return Error.InvalidEncoding;
         set_fields += 1;
 
@@ -185,9 +165,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
             expected_fields += 1;
         }
     }
-    if (set_fields < expected_fields) {
-        return error.InvalidEncoding;
-    }
+    if (set_fields < expected_fields) return Error.InvalidEncoding;
 
     return out;
 }
