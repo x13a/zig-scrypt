@@ -130,6 +130,8 @@ pub const Params = struct {
     r: u30,
 
     /// The [p]arallelization parameter.
+    /// A large value of [p] can be used to increase the computational cost of scrypt without 
+    /// increasing the memory usage.
     p: u30,
 
     /// Baseline parameters for interactive logins
