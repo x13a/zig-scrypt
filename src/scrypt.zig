@@ -624,14 +624,16 @@ test "kdf rfc 4" {
 test "password hashing (crypt format)" {
     if (!run_long_tests) return error.SkipZigTest;
 
+    const alloc = std.testing.allocator;
+
     const str = "$7$A6....1....TrXs5Zk6s8sWHpQgWDIXTR8kUU3s6Jc3s.DtdS8M2i4$a4ik5hGDN7foMuHOW.cp.CtX01UyCeO0.JAG.AHPpx5";
     const password = "Y0!?iQa9M%5ekffW(`";
-    try CryptFormatHasher.verify(std.testing.allocator, str, password);
+    try CryptFormatHasher.verify(alloc, str, password);
 
     const params = Params.interactive;
     var buf: [CryptFormatHasher.pwhash_str_length]u8 = undefined;
-    const str2 = try CryptFormatHasher.create(std.testing.allocator, password, params, &buf);
-    try CryptFormatHasher.verify(std.testing.allocator, str2, password);
+    const str2 = try CryptFormatHasher.create(alloc, password, params, &buf);
+    try CryptFormatHasher.verify(alloc, str2, password);
 }
 
 test "strHash and strVerify" {
@@ -652,7 +654,6 @@ test "strHash and strVerify" {
         );
         try strVerify(str, password, verify_options);
     }
-
     {
         const str = try strHash(
             password,
