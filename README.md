@@ -8,3 +8,4 @@ Merged: [9577](https://github.com/ziglang/zig/pull/9577)
 
 - [rfc](https://tools.ietf.org/html/rfc7914)
 - [golang](https://github.com/golang/crypto/blob/master/scrypt/scrypt.go)
+- [c](https://github.com/Tarsnap/scrypt)

@@ -1,5 +1,6 @@
 // https://tools.ietf.org/html/rfc7914
 // https://github.com/golang/crypto/blob/master/scrypt/scrypt.go
+// https://github.com/Tarsnap/scrypt
 
 const std = @import("std");
 const crypto = std.crypto;
